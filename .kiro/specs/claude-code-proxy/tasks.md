@@ -1,0 +1,117 @@
+# Implementation Plan: Claude Code Proxy
+
+## Current State
+
+- Spec source is limited to `requirements.md` and `design.md`.
+- There is no production code, test suite, `plan.md`, or TODO inventory in the repository yet.
+- Because the repo is still empty, the first plan must bias toward fast in-memory tests and a narrow vertical slice before any AWS/IaC breadth is added.
+
+## Goal
+
+- 등록되고 `proxy_access_enabled=true` 인 사용자가 Token Service를 통해 Virtual Key를 재사용 또는 발급받고, 그 키로 `POST /v1/messages`에 단일 non-streaming Anthropic 호환 요청을 보내면 Proxy가 인증, 모델 해석, 정책/쿼터/속도 제한 평가, Bedrock 어댑터 호출, 감사 기록까지 수행한 뒤 Anthropic 호환 응답을 반환한다.
+- 인증, 인가, quota, rate limit 실패는 모두 Bedrock 호출 전에 fail-closed 로 끝나야 한다.
+
+## Design Alignment
+
+- 구현 작업은 `design.md`의 `모듈 구조 및 코드베이스 골격 (권장)`을 기준으로 한다.
+- 상위 패키지 경계는 먼저 고정한다: `api`, `models`, `token_service`, `proxy`, `repositories`, `security`, `scripts`, `infra`, `tests`.
+- `api`는 transport/orchestration만 담당하고, Token Service와 Proxy의 공용 타입은 `models`로 올린다.
+- 테스트 디렉터리는 production 구조를 따라가며, 초기 increment는 `tests/fakes` 기반 in-memory 검증을 기본으로 한다.
+
+## Tasks
+
+- [ ] 1. 코드베이스 골격 및 기반 설정
+  - [ ] 1.1 `design.md`의 모듈 구조를 따라 상위 패키지 골격(`api`, `models`, `token_service`, `proxy`, `repositories`, `security`, `scripts`, `infra`, `tests`)과 테스트 하위 디렉터리를 만들고 `pytest`, `pytest-asyncio`만 먼저 설정한다. Verify: `pytest -q`
+  - [ ] 1.2 Token Service와 Proxy가 공유하는 도메인 모델, 에러 envelope, request context 타입을 `models/`에 추가한다. 아직 AWS SDK나 실제 DB 연결은 넣지 않는다. Verify: `pytest tests/models -q`
+  - [ ] 1.3 PostgreSQL, DynamoDB, Bedrock, clock, request-id generator에 대한 in-memory fake를 `tests/fakes`에 만들고, production code는 이를 repository/service 경계를 통해 사용 가능하게 둔다. 첫 번째 vertical slice에서는 네트워크 없이 테스트가 돌아가야 한다. Verify: `pytest tests/fakes -q`
+  - [ ] 1.4 FastAPI 앱 팩토리와 dependency injection 슬롯을 `api/app.py`, `api/dependencies.py`에만 만든다. 라우팅의 실제 동작은 뒤의 behavioral increment에서 채운다. Verify: `pytest tests/api/test_app_factory.py -q`
+
+- [ ] 2. Security 모듈 구현
+  - [ ] 2.1 Test: `generate_virtual_key()`는 항상 `vk_` 접두사를 반환하고 `hash_virtual_key()`는 같은 입력에 항상 같은 해시를 반환한다. Code: `security/keys.py`에 key generator, hash, key prefix helper만 추가한다. Verify: `pytest tests/security/test_keys.py -q`. Refactor after green: key 길이와 encoding 상수를 한 곳으로 모은다. Covers: R3.8, R11.1.
+
+- [ ] 3. Token Service 구현
+  - [ ] 3.1 Test: Token Service는 API Gateway event의 `requestContext.identity.userArn`에서 username을 안정적으로 추출한다. Code: `token_service/identity.py`에 ARN parser만 추가한다. Verify: `pytest tests/token_service/test_identity.py -q`. Refactor after green: event parsing helper를 분리한다. Covers: R2.3, R2.4.
+  - [ ] 3.2 Test: username 매핑이 없으면 Token Service는 403 사용자 미등록 오류를 반환하고 key lookup이나 발급을 시도하지 않는다. Code: `token_service/handler.py`에 최소 handler와 `models/errors.py` 기반 error envelope 연결만 추가한다. Verify: `pytest tests/token_service/test_handler_unregistered_user.py -q`. Refactor after green: error response builder를 공용화한다. Covers: R2.5, R14.4.
+  - [ ] 3.3 Test: DynamoDB cache hit에 active key가 있으면 Token Service는 PostgreSQL lookup 없이 기존 key를 반환한다. Code: `token_service/issue_service.py`에 cache-first lookup만 추가한다. Verify: `pytest tests/token_service/test_issue_service_cache_hit.py -q`. Refactor after green: repository protocol을 도입한다. Covers: R3.1, R3.2, R12.2.
+  - [ ] 3.4 Test: DynamoDB cache miss는 사용자 부재를 의미하지 않으며 Token Service는 반드시 PostgreSQL에서 user row를 다시 조회한다. Code: `token_service/issue_service.py`에 fallback lookup을 추가한다. Verify: `pytest tests/token_service/test_issue_service_cache_miss_falls_back.py -q`. Refactor after green: cache miss branch를 작은 함수로 분리한다. Covers: R3.3, R12.3.
+  - [ ] 3.5 Test: PostgreSQL에 user row가 없거나 `proxy_access_enabled=false` 이면 Token Service는 새 key를 만들지 않고 403을 반환한다. Code: `issue_service`에 user gate만 추가한다. Verify: `pytest tests/token_service/test_issue_service_user_gate.py -q`. Refactor after green: denial reason enum을 도입한다. Covers: R3.4, R3.5, R10.2.
+  - [ ] 3.6 Test: PostgreSQL에 기존 active key가 있으면 Token Service는 복호화 후 그 key를 재사용하고 DynamoDB cache를 갱신한다. Code: `security/encryption.py`와 `issue_service`에 재사용 경로만 추가한다. Verify: `pytest tests/token_service/test_issue_service_reuses_existing_key.py -q`. Refactor after green: 암복호화 포트를 인터페이스로 분리한다. Covers: R3.6, R3.8, R12.6.
+  - [ ] 3.7 Test: 허용된 사용자에게 active key가 없으면 Token Service는 새 key를 발급하고 `key_hash`와 `encrypted_key_blob`만 저장한 뒤 cache를 갱신한다. Code: `issue_service`와 virtual key repository fake에 신규 발급 경로를 추가한다. Verify: `pytest tests/token_service/test_issue_service_issues_new_key.py -q`. Refactor after green: persistence payload builder를 분리한다. Covers: R3.7, R3.8, R3.12.
+  - [ ] 3.8 Structural: `repositories/` 경계에 user, virtual key, policy, model route, usage/pricing repository protocol을 추가하고, FastAPI/Lambda/AWS SDK 타입이 repository 바깥으로 새지 않도록 import 규칙을 고정한다. Verify: `pytest tests/repositories/test_repository_protocols.py -q`
+  - [ ] 3.9 Test: PostgreSQL schema contract는 `users`, `identity_user_mappings`, `virtual_keys`, `policies`, `budget_policies`, `model_alias_rules`, `model_routes`, `usage_events`, `audit_events`, `model_pricing_catalog`와 `key_hash` 인덱스 및 budget policy check constraint를 정의한다. Code: migration 또는 schema contract 파일을 최소 단위로 추가한다. Verify: `pytest tests/repositories/test_postgres_schema_contract.py -q`. Refactor after green: schema constants를 모듈화한다. Covers: R6.6, R8.1, R8.2, R12.1.
+  - [ ] 3.10 Test: PostgreSQL-backed `user_repository`와 `virtual_key_repository`는 fake와 같은 username mapping lookup, active key reuse, status persistence behavior를 만족한다. Code: `repositories/user_repository.py`, `repositories/virtual_key_repository.py`에 PostgreSQL adapter를 추가한다. Verify: `pytest tests/repositories/test_postgres_repositories.py -q`. Refactor after green: SQL statement builder를 작은 함수로 분리한다. Covers: R2.4, R3.6, R3.7, R12.1.
+  - [ ] 3.11 Test: DynamoDB-backed virtual key cache adapter는 plaintext key 없이 `encrypted_key_ref`, `key_prefix`, `status`, `ttl`만 저장하고, cache miss를 user absence로 해석하지 않는다. Code: `repositories/virtual_key_repository.py` 또는 별도 cache adapter에 DynamoDB 구현을 추가한다. Verify: `pytest tests/repositories/test_dynamodb_virtual_key_cache.py -q`. Refactor after green: cache payload serializer를 분리한다. Covers: R3.1, R3.12, R12.2, R12.3, R12.6.
+  - [ ] 3.12 Test: Token Service wiring은 `tests/fakes` 기반 repository 세트와 storage-backed repository 세트를 같은 service contract로 교체 가능하다. Code: `token_service/handler.py`, `token_service/issue_service.py`, `api/dependencies.py`에 composition slot만 추가한다. Verify: `pytest tests/token_service/test_repository_swap_contract.py -q`. Refactor after green: composition root를 한 파일로 모은다. Covers: R12.1, R12.2, R14.2, R14.3.
+
+- [ ] 4. Proxy Auth Service 구현
+  - [ ] 4.1 Test: Proxy는 missing, malformed, unknown, revoked, disabled Virtual Key를 모두 거부하고 Bedrock을 호출하지 않는다. Code: `proxy/auth.py`에 bearer parser와 key verification 최소 구현을 추가한다. Verify: `pytest tests/proxy/test_auth_rejects_invalid_keys.py -q`. Refactor after green: auth failure mapping을 공용 에러 타입으로 연결한다. Covers: R4.1, R4.2, R4.3, R11.4, R11.9.
+  - [ ] 4.2 Test: Proxy는 `X-User-*` 헤더나 body의 사용자 정보를 무시하고, 검증된 Virtual Key에서만 `user_id`, `email`, `groups`, `department`를 복원한다. Code: `models/context.py`, `proxy/context.py`, `proxy/auth.py`에 trusted context restoration만 추가한다. Verify: `pytest tests/proxy/test_auth_restores_trusted_context.py -q`. Refactor after green: request context builder를 추출한다. Covers: R4.4, R4.5, R4.6.
+
+- [ ] 5. Model Resolver 구현
+  - [ ] 5.1 Test: Model Resolver는 요청 모델명을 `logical_model`로 해석한 뒤 Bedrock model ID로 매핑한다. Code: `proxy/model_resolver.py`에 alias rule match와 route lookup 최소 구현을 추가한다. Verify: `pytest tests/proxy/test_model_resolver_happy_path.py -q`. Refactor after green: priority sort helper를 분리한다. Covers: R7.1, R7.9.
+  - [ ] 5.2 Test: 허용 모델 목록에 없는 요청 모델은 Proxy가 즉시 거부한다. Code: `model_resolver.py`에 unknown model denial만 추가한다. Verify: `pytest tests/proxy/test_model_resolver_rejects_unknown_model.py -q`. Refactor after green: resolver result 타입을 명시화한다. Covers: R7.2.
+
+- [ ] 6. Policy Engine 구현
+  - [ ] 6.1 Test: Policy Engine은 비활성 사용자 또는 `proxy_access_enabled=false` 사용자를 다른 평가보다 먼저 거부한다. Code: `proxy/policy_engine.py`에 user status gate만 추가한다. Verify: `pytest tests/proxy/test_policy_engine_user_gate.py -q`. Refactor after green: evaluation trace 구조체를 추가한다. Covers: R5.1, R5.2.
+  - [ ] 6.2 Test: Policy Engine은 `user -> group -> department -> global` 순서를 결정적으로 따르고 `deny > allow` 및 가장 restrictive한 값을 적용한다. Code: `policy_engine.py`에 scope merge 로직만 추가한다. Verify: `pytest tests/proxy/test_policy_engine_resolution_order.py -q`. Refactor after green: merge rules를 pure function으로 분리한다. Covers: R5.3, R5.4, R5.5.
+
+- [ ] 7. Quota Engine 구현
+  - [ ] 7.1 Test: Quota Engine은 soft limit를 기록용으로만 다루고 hard limit 초과에서만 요청을 차단한다. Code: `proxy/quota_engine.py`에 single-policy evaluator만 추가한다. Verify: `pytest tests/proxy/test_quota_engine_soft_vs_hard.py -q`. Refactor after green: quota decision 모델을 공용화한다. Covers: R6.4, R6.5, R6.6.
+  - [ ] 7.2 Test: 사용자, 팀, 전역 budget policy가 동시에 있으면 Quota Engine은 가장 보수적인 정책을 선택한다. Code: `quota_engine.py`에 multi-scope merge만 추가한다. Verify: `pytest tests/proxy/test_quota_engine_conservative_merge.py -q`. Refactor after green: policy ordering helper를 분리한다. Covers: R6.1, R6.2, R6.3, R6.7, R6.10.
+
+- [ ] 8. Rate Limiter 구현
+  - [ ] 8.1 Test: 사용자별 분당 rate limit 초과 시 Proxy는 429와 `Retry-After`를 반환한다. Code: `proxy/rate_limiter.py`에 in-memory window limiter만 추가한다. Verify: `pytest tests/proxy/test_rate_limiter.py -q`. Refactor after green: clock injection을 추가한다. Covers: R5.8, R11.5.
+
+- [ ] 9. Bedrock Adapter 구현
+  - [ ] 9.1 Test: Anthropic 호환 요청의 최소 messages payload가 Bedrock Converse 요청으로 변환된다. Code: `proxy/bedrock_converse/request_builder.py`에 non-streaming 최소 request mapping만 추가한다. Verify: `pytest tests/bedrock_converse/test_request_builder.py -q`. Refactor after green: field mapping table을 정리한다. Covers: R7.3, R15.5.
+  - [ ] 9.2 Test: Bedrock Converse 응답의 최소 payload가 Anthropic 호환 응답과 usage 정보로 역변환된다. Code: `proxy/bedrock_converse/response_parser.py`에 minimal response mapping만 추가한다. Verify: `pytest tests/bedrock_converse/test_response_parser.py -q`. Refactor after green: stop reason mapper를 분리한다. Covers: R7.4.
+
+- [ ] 10. Public Runtime API 구현
+  - [ ] 10.1 Test: `/v1/messages`는 인증 실패 시 resolver, policy, quota, rate limiter, bedrock을 호출하지 않고 Anthropic 호환 401 envelope를 반환한다. Code: `api/proxy_router.py`에 auth dependency와 최소 실패 매핑만 연결한다. Verify: `pytest tests/api/test_messages_requires_auth.py -q`. Refactor after green: auth dependency wrapper를 분리한다. Covers: R4.1, R4.3, R15.1.
+  - [ ] 10.2 Test: 인증된 `/v1/messages` 요청은 pre-approved resolver/policy/quota/rate-limit stub과 bedrock stub을 통해 non-streaming Anthropic 호환 응답을 반환한다. Code: `api/proxy_router.py`에 happy-path orchestration만 추가한다. Verify: `pytest tests/api/test_messages_returns_response.py -q`. Refactor after green: endpoint orchestration을 service 함수로 분리한다. Covers: R15.1, R15.5.
+  - [ ] 10.3 Test: `/v1/messages`에서 policy, quota, rate limit 중 어느 단계가 deny 하더라도 Bedrock은 호출되지 않고 이해 가능한 차단 메시지와 `request_id`가 반환된다. Code: `api/proxy_router.py`와 `api/errors.py`에 fail-closed branch를 추가한다. Verify: `pytest tests/api/test_messages_fail_closed.py -q`. Refactor after green: denial-to-envelope 매핑을 공용화한다. Covers: R5.6, R6.6, R7.6, R14.8.
+  - [ ] 10.4 Test: 성공한 `/v1/messages` 요청은 resolver -> policy -> quota -> rate limiter -> bedrock 순서로 각 의존성을 정확히 한 번씩 호출한다. Code: `api/proxy_router.py`에 호출 순서 고정만 추가한다. Verify: `pytest tests/api/test_messages_pipeline_order.py -q`. Refactor after green: orchestration trace helper를 분리한다. Covers: R5.1, R7.1, R15.1.
+  - [ ] 10.5 Test: `/health`는 항상 200을 반환하고 `/ready`는 DB/resolver/dependency 상태에 따라 green/red를 구분한다. Code: `api/health_router.py`와 readiness probe 최소 구현을 추가한다. Verify: `pytest tests/api/test_health_and_ready.py -q`. Refactor after green: readiness dependency contract를 분리한다. Covers: R15.3, R15.4.
+  - [ ] 10.6 Test: `/v1/messages/count_tokens`는 동일한 인증 경로를 사용하고 Anthropic 호환 count 응답을 반환한다. Code: `api/proxy_router.py` 또는 별도 router에 count endpoint 최소 구현을 추가한다. Verify: `pytest tests/api/test_count_tokens.py -q`. Refactor after green: request auth dependency를 공용화한다. Covers: R15.2.
+
+- [ ] 11. Streaming 지원
+  - [ ] 11.1 Test: streaming 요청은 첫 SSE chunk를 전체 응답 버퍼링 없이 전달한다. Code: `proxy/bedrock_converse/stream_decoder.py`와 streaming branch를 추가한다. Verify: `pytest tests/api/test_messages_streaming.py -q`. Refactor after green: chunk translator를 순수 함수로 분리한다. Covers: R7.4, R7.5, R16.3.
+
+- [ ] 12. Audit Logger 구현
+  - [ ] 12.1 Test: Audit Logger는 `request_id`, 정책 결과, token usage를 기록하되 prompt 원문과 plaintext Virtual Key는 남기지 않는다. Code: `proxy/audit_logger.py`와 usage/audit repository를 추가한다. Verify: `pytest tests/proxy/test_audit_logger_redaction.py -q`. Refactor after green: redaction helper를 공용화한다. Covers: R8.1, R8.2, R8.3, R8.6.
+  - [ ] 12.2 Test: 성공한 `/v1/messages` 요청은 response mapping 이후 usage/audit record를 남기고, deny된 요청은 denial audit만 남긴다. Code: `proxy/audit_logger.py`와 `api/proxy_router.py` 사이의 audit wiring만 추가한다. Verify: `pytest tests/api/test_messages_audit_integration.py -q`. Refactor after green: endpoint audit hook을 분리한다. Covers: R8.1, R8.3, R8.4.
+
+- [ ] 13. Token Service IaC 및 API Gateway 설정
+  - [ ] 13.1 Test: Token Service 배포 산출물은 IAM Auth, SigV4 rejection, stage throttling, TLS/WAF-ready 설정을 선언한다. Code: 최소 IaC contract 또는 config schema를 추가한다. Verify: `pytest tests/iac/test_token_service_gateway_contract.py -q`. Refactor after green: infra defaults를 별도 설정 객체로 분리한다. Covers: R2.1, R2.2, R2.7, R11.8.
+
+- [ ] 14. Admin API 구현
+  - [ ] 14.1 Test: Admin user provisioning은 `users`와 `identity_user_mappings`를 함께 생성하고 비활성 사용자에 대한 budget policy 생성을 거부한다. Code: `api/admin_users.py`와 provisioning service를 추가한다. Verify: `pytest tests/admin/test_user_provisioning.py -q`. Refactor after green: write transaction boundary를 분리한다. Covers: R10.1, R10.3, R10.4, R10.5.
+  - [ ] 14.2 Test: Virtual Key revoke, disable, rotate는 DynamoDB cache와 Proxy auth cache를 함께 무효화하고 이전 key를 즉시 거부한다. Code: `api/admin_virtual_keys.py`와 internal invalidation port를 추가한다. Verify: `pytest tests/admin/test_virtual_key_lifecycle.py -q`. Refactor after green: invalidation dispatcher를 분리한다. Covers: R3.9, R3.10, R3.11, R11.6.
+  - [ ] 14.3 Test: Admin budget policy CRUD는 `soft_limit_percent <= hard_limit_percent <= 100`을 강제한다. Code: `api/admin_budget_policies.py`와 validation model을 추가한다. Verify: `pytest tests/admin/test_budget_policy_validation.py -q`. Refactor after green: percent validator를 공용화한다. Covers: R9.4, R9.5, R9.6.
+  - [ ] 14.4 Test: Admin model mapping 변경은 resolver cache reload로 이어진다. Code: `api/admin_model_mappings.py`와 resolver reload hook을 추가한다. Verify: `pytest tests/admin/test_model_mapping_reload.py -q`. Refactor after green: reload notifier 인터페이스를 분리한다. Covers: R7.8, R9.7.
+  - [ ] 14.5 Test: Internal cache invalidation 호출 후 다음 Token Service lookup은 PostgreSQL을 다시 조회한다. Code: `api/internal_ops.py`와 invalidation endpoint를 추가한다. Verify: `pytest tests/admin/test_internal_cache_invalidation.py -q`. Refactor after green: internal auth boundary를 명시화한다. Covers: R9.10, R12.3.
+  - [ ] 14.6 Test: 사용량/감사 조회 API는 사용자별, 팀별, 모델별 usage와 audit event를 필터링해 반환한다. Code: `api/admin_usage.py`와 query service를 추가한다. Verify: `pytest tests/admin/test_usage_queries.py -q`. Refactor after green: pagination/filter object를 도입한다. Covers: R9.12, R9.13.
+
+- [ ] 15. apiKeyHelper 스크립트 구현
+  - [ ] 15.1 Test: `apiKeyHelper`는 유효한 로컬 cache가 있으면 100ms 이내에 key를 반환하고, cache miss나 손상 시 Token Service를 다시 호출하며, 연결 실패 시 빠르게 실패한다. Code: `scripts/apiKeyHelper`와 cache file helper를 추가한다. Verify: `pytest tests/scripts/test_api_key_helper.py -q`. Refactor after green: CLI command runner를 분리한다. Covers: R1.1-R1.7, R11.1, R14.1, R16.1.
+
+- [ ] 16. 관측성 및 에러 처리 통합
+  - [ ] 16.1 Test: 모든 failure path는 `request_id`를 포함한 구조화 로그와 핵심 metrics를 남긴다. Code: observability middleware와 metrics hooks를 추가한다. Verify: `pytest tests/observability/test_request_id_and_metrics.py -q`. Refactor after green: metric names/constants를 모듈화한다. Covers: R13.1-R13.5, R14.7.
+  - [ ] 16.2 Test: Anthropic 호환 에러 응답은 auth, permission, rate limit, invalid request, upstream failure를 올바른 HTTP status와 envelope로 매핑한다. Code: `models/errors.py`와 `api/errors.py`를 잇는 공용 error handler를 추가한다. Verify: `pytest tests/api/test_error_envelopes.py -q`. Refactor after green: error enum과 mapper를 통합한다. Covers: R14.8, R15.5.
+
+- [ ] 17. 성능 계약 검증
+  - [ ] 17.1 Test: 성능 probe는 local cache hit, Token Service response, first streaming token latency에 대한 계약을 검증한다. Code: lightweight benchmark/contract test harness를 추가한다. Verify: `pytest tests/perf/test_contracts.py -q`. Refactor after green: perf thresholds를 설정 파일로 이동한다. Covers: R16.1, R16.2, R16.3.
+
+## Current Increment
+
+- Task: `1.1` 코드베이스 골격과 테스트 디렉터리를 `design.md`의 상위 패키지 경계에 맞춰 만든다.
+- Code: `api`, `models`, `token_service`, `proxy`, `repositories`, `security`, `scripts`, `infra`, `tests` 패키지와 대응 테스트 디렉터리만 만들고, 아직 새 동작은 추가하지 않는다.
+- Verify: `pytest -q`
+
+## Stop Signals
+
+- 현재 increment가 새 동작 두 개 이상을 동시에 요구하면 다시 쪼갠다.
+- AWS 연결, FastAPI wiring, DB schema, business rule을 한 increment 안에 같이 넣으려 하면 structural work와 behavioral work를 다시 분리한다.
+- streaming, Admin API, observability 같은 후속 범위가 현재 happy-path slice에 섞이기 시작하면 즉시 backlog로 되돌린다.
+- 테스트를 약화하거나 우회해야만 green 이 되는 순간, production code가 아니라 계획을 다시 쓴다.
+- spec에 없는 자동 사용자 생성, fail-open 인증, plaintext key 저장 같은 동작이 떠오르면 범위 드리프트로 보고 중단한다.
