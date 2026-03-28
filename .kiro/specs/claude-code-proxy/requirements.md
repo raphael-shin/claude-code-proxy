@@ -215,14 +215,14 @@
 
 ### Requirement 13: 관측성 및 모니터링
 
-**User Story:** 플랫폼 엔지니어로서, 서비스별 metrics, logs, traces를 통해 시스템 상태를 실시간으로 파악하기를 원한다. 이를 통해 장애를 빠르게 감지하고 대응할 수 있다.
+**User Story:** 플랫폼 엔지니어로서, 서비스의 기본 health, metrics, logs를 통해 시스템 상태를 빠르게 파악하기를 원한다. 이를 통해 Proxy가 정상 동작하는지 확인하고 장애에 대응할 수 있다.
 
 #### Acceptance Criteria
 
-1. THE LLM_Proxy SHALL request count, success rate, auth failure rate, policy denial rate, model usage by user, tokens by user, tokens by team, cost estimate by model, p50/p95 latency 메트릭을 제공한다.
-2. THE Token_Service SHALL DynamoDB_Cache hit rate와 Aurora_PostgreSQL lookup rate 메트릭을 제공한다.
-3. THE LLM_Proxy SHALL 인증 실패율, 정책 차단율, quota 초과율, 모델별 사용량을 시각화할 수 있는 데이터를 제공한다.
-4. THE LLM_Proxy SHALL 서비스별 metrics, logs, traces를 제공한다.
+1. THE LLM_Proxy SHALL request count, error rate, p50/p95 latency와 같은 기본 runtime 메트릭을 제공한다.
+2. THE Token_Service SHALL DynamoDB_Cache hit rate, error count, latency 메트릭을 제공한다.
+3. THE ALB SHALL target health check와 기본 request/error 메트릭을 제공한다.
+4. THE ECS Fargate service SHALL container log와 기본 서비스 메트릭을 제공한다.
 5. THE LLM_Proxy SHALL 모든 실패를 correlation ID(request_id)와 함께 기록한다.
 
 ### Requirement 14: 장애 처리

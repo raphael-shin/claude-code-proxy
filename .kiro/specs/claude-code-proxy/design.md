@@ -17,6 +17,7 @@ Claude Code Proxy는 조직의 SSO 기반 인증을 통해 Claude Code 사용자
 - DynamoDB는 cache이고 PostgreSQL은 source of truth다
 - `cache miss → PostgreSQL user lookup → 기존 key 조회 → 필요 시에만 발급 → DDB 갱신`
 - Bedrock 호출 권한은 Proxy 서비스 역할에만 부여한다
+- API Gateway, Lambda, ALB, ECS Fargate, Aurora, DynamoDB, IAM, observability 리소스는 수동 콘솔 설정이 아니라 CDK stack으로 관리한다
 
 ## 아키텍처 (Architecture)
 
@@ -148,6 +149,48 @@ sequenceDiagram
     PX-->>CC: 응답 반환
 ```
 
+### AWS 배포 토폴로지 및 CDK 스택 경계
+
+Claude Code Proxy의 AWS 리소스는 애플리케이션 코드의 부수 설정이 아니라 시스템 설계의 일부다. 따라서 환경별(`dev`, `staging`, `prod`) 배포는 동일한 CDK app에서 synth/deploy 가능한 stack 집합으로 정의하고, 수동 콘솔 설정에 의존하지 않는다.
+
+#### 배포 토폴로지
+
+| 경계 | 주요 리소스 | 설계 포인트 |
+|------|-------------|-------------|
+| Bootstrap ingress | API Gateway, Token Service Lambda, stage access logs, throttling, optional API Gateway auth Lambda hook | 조직 SSO 세션을 가진 사용자가 SigV4 기반으로 Virtual Key를 bootstrap하는 경로 |
+| Runtime ingress | Route53/ACM, WAF, ALB, ECS Fargate Service | Claude Code가 Anthropic 호환 API를 호출하는 공개 경로 |
+| Private application network | VPC, public/private subnets, security groups, NAT 또는 VPC endpoint | ALB만 public, Lambda/Fargate/Aurora는 private 경계에 둔다 |
+| Data plane | Aurora PostgreSQL Serverless v2, optional RDS Proxy, DynamoDB, Secrets Manager, KMS | 원장, cache, secret, encryption key를 분리 관리 |
+| Observability | CloudWatch Logs, API Gateway/Lambda/ALB/ECS 기본 메트릭, ALB health check | Proxy와 Token Service의 기본 운영 상태를 빠르게 확인 |
+
+#### CDK 스택 구성
+
+| Stack | 주요 리소스 | 의존 관계 |
+|------|-------------|-----------|
+| `NetworkStack` | VPC, subnet, route table, security group, optional VPC endpoint | 없음 |
+| `DataStack` | Aurora Serverless v2, DB secret, subnet group, parameter group, optional RDS Proxy, DynamoDB cache table, KMS key | `NetworkStack` |
+| `TokenServiceStack` | API Gateway, stage/access logs, Lambda integration, invoke permission, optional request authorizer hook, basic log retention/metric wiring | `NetworkStack`, `DataStack` |
+| `ProxyRuntimeStack` | ECS Cluster, TaskDefinition, Fargate Service, ALB, HTTPS listener, ACM certificate, WAF association, autoscaling, log groups, ALB health check | `NetworkStack`, `DataStack` |
+
+권장 배포 순서는 `NetworkStack → DataStack → TokenServiceStack / ProxyRuntimeStack` 이다. CDK app은 환경별 account/region, naming, tag, capacity, secret ARN 같은 설정을 한 곳에서 관리해야 한다.
+
+#### IAM 역할 경계
+
+| 주체 | 최소 권한 |
+|------|-----------|
+| Token Service Lambda role | DynamoDB cache read/write/delete, Aurora/RDS Proxy 접속, Secrets Manager 조회, KMS decrypt/encrypt, CloudWatch Logs |
+| Proxy task role | Bedrock invoke, Aurora/RDS Proxy 접속, Secrets Manager 조회, KMS decrypt, internal invalidation에 필요한 최소 DynamoDB 권한 |
+| Proxy task execution role | ECR image pull, CloudWatch Logs write, secret injection에 필요한 실행 권한 |
+| API Gateway invoke permission | 지정된 API/stage에서만 Token Service Lambda 호출 허용 |
+
+#### API Gateway 인증 Lambda 배치 원칙
+
+기본 bootstrap 경로는 `API Gateway IAM Auth + Token Service Lambda integration` 이다. 다만 조직 정책상 API Gateway 단계에 별도 Lambda 기반 인증 또는 request normalization이 필요한 경우, 해당 Lambda는 CDK `TokenServiceStack` 안의 별도 construct로 모델링한다.
+
+- API Gateway auth Lambda는 pre-auth 판단 또는 route-level principal context 반환만 담당한다.
+- Virtual Key 발급, username → `user_id` 해석, PostgreSQL/DynamoDB 원장 판단은 여전히 Token Service Lambda가 담당한다.
+- authorizer result cache TTL, invoke permission, access log, route attachment는 모두 CDK에 명시되어야 하며 콘솔 수동 설정으로 남기지 않는다.
+
 ## 컴포넌트 및 인터페이스 (Components and Interfaces)
 
 ### 1. Client Layer
@@ -178,6 +221,7 @@ Claude Code의 `apiKeyHelper` 설정을 통해 호출되는 셸 스크립트로,
 - WAF 연동 가능
 - TLS termination
 - 모든 요청에 request ID 부여
+- CDK 산출물은 API, stage, access log, throttling, Lambda integration, invoke permission, optional authorizer hook을 포함해야 한다
 
 #### Token Service Lambda
 
@@ -186,6 +230,8 @@ Claude Code의 `apiKeyHelper` 설정을 통해 호출되는 셸 스크립트로,
 - `identity_user_mappings` 테이블에서 `user_id` 조회
 - DynamoDB 캐시 조회 → PostgreSQL 원장 조회 → Virtual Key 반환/발급
 - 미등록/비허용 사용자 요청 거부
+- VPC 연결이 필요한 경우 private subnet + security group을 통해 Aurora/RDS Proxy에 접근
+- Secrets Manager/KMS를 통해 DB 연결 정보와 암호화 키에 접근
 
 **인터페이스:**
 
@@ -206,11 +252,38 @@ Error Responses:
 - 500: 내부 오류
 ```
 
+#### API Gateway Auth Lambda (배포 프로파일별)
+
+배포 환경에 따라 API Gateway request authorizer 또는 request pre-processor Lambda를 둘 수 있다. 이 Lambda는 인증 경로를 보강하는 컴포넌트이며, Token Service business logic을 대체하지 않는다.
+
+**책임:**
+- 헤더/claim/request context 정규화 또는 선제 차단
+- allow/deny 또는 최소 principal context 반환
+- 감사 로그와 CloudWatch metric에 필요한 auth-level metadata 방출
+
+**비책임:**
+- Virtual Key 발급 또는 rotate/revoke
+- `identity_user_mappings` 또는 `users` 원장 조회의 source of truth 역할
+- Proxy runtime의 최종 사용자 식별 책임
+
+**CDK 고려사항:**
+- authorizer Lambda 자체의 log group, 기본 metric, invoke permission을 함께 선언
+- route attachment와 cache TTL을 환경 설정으로 제어
+- business logic이 Token Service Lambda와 중복되지 않도록 contract를 분리
+
 ### 3. Proxy Runtime Layer
 
 #### FastAPI LLM Proxy (ECS Fargate)
 
 ALB 뒤에서 동작하는 메인 프록시 서비스. 내부에 다음 컴포넌트를 포함한다.
+
+**배포 계약 (AWS):**
+- ECS Cluster + Fargate TaskDefinition + Service 조합으로 배포한다.
+- 컨테이너 이미지는 ECR에서 공급하고, task는 private subnet에 두며 public IP를 직접 부여하지 않는다.
+- ALB는 HTTPS listener(ACM), WAF association, target group health check(`/health`), streaming 대응 idle timeout(권장 300초 이상)을 가진다.
+- ECS rolling deployment, deployment circuit breaker, 다중 AZ 배치, autoscaling 정책을 통해 무중단 배포를 지원한다.
+- execution role와 task role은 분리하며, Bedrock 호출 권한은 task role에만 부여한다.
+- CloudWatch Logs와 ECS/ALB의 기본 메트릭이 기본 배포물에 포함된다.
 
 ##### Auth Service
 
@@ -601,14 +674,29 @@ scripts/
   apiKeyHelper             # Claude Code client-side bootstrap helper
 
 infra/
-  token_service_gateway.py # API Gateway/Lambda/IAM contract 또는 config schema
+  app.py                   # CDK app entrypoint
+  config.py                # 환경별 account/region/naming/config
+  stacks/
+    network_stack.py       # VPC, subnet, security group, endpoint
+    data_stack.py          # Aurora, RDS Proxy, DynamoDB, KMS, secret
+    token_service_stack.py # API Gateway, Lambda, throttling, optional authorizer
+    proxy_runtime_stack.py # ECS/Fargate, ALB, WAF, ACM, autoscaling
+  constructs/
+    token_service_api.py   # API Gateway + Lambda wiring
+    proxy_service.py       # ECS service + ALB wiring
+    data_plane.py          # shared data resources wiring
 
 tests/
   api/
+  models/
   token_service/
   proxy/
+  bedrock_converse/
   admin/
+  repositories/
   security/
+  scripts/
+  iac/
   observability/
   perf/
   fakes/
@@ -622,9 +710,10 @@ tests/
 - `repositories`는 PostgreSQL, DynamoDB, usage/audit 저장소 같은 외부 상태 접근 경계를 제공한다. HTTP 타입이나 FastAPI 타입을 알지 못해야 한다.
 - `security`는 해시, key 생성, 암복호화 같은 순수 보안 유틸리티를 제공하며, 상위 레이어가 공통으로 사용한다.
 - `scripts`는 Claude Code 단말에서 실행되는 클라이언트 부트스트랩 코드다. 서버 런타임 패키지와 강결합하지 않도록 유지한다.
+- `infra`는 CDK composition root다. 애플리케이션 런타임 코드의 business rule을 재구현하지 않고, 네트워크/권한/배포 단위의 AWS 리소스를 선언한다.
 - `tests`는 production package 구조를 따라가며, 초기 vertical slice에서는 `tests/fakes`의 in-memory fake를 기본 검증 수단으로 사용한다.
 
-이 골격은 "상위 패키지 경계"를 고정하는 것이지 세부 구현체를 과도하게 확정하는 것은 아니다. 실제 AWS SDK 연동, PostgreSQL 구현, DynamoDB adapter, observability wiring은 이후 increment에서 같은 경계 안에 추가한다.
+이 골격은 "상위 패키지 경계"를 고정하는 것이지 세부 구현체를 과도하게 확정하는 것은 아니다. 실제 AWS SDK 연동, PostgreSQL 구현, DynamoDB adapter, 기본 로그/메트릭 wiring은 이후 increment에서 같은 경계 안에 추가한다.
 
 
 ## 보안 설계 (Security Design)
@@ -668,6 +757,20 @@ sequenceDiagram
 
 - revoke, disable, rotate 시 DDB cache 삭제 + Proxy auth cache 무효화를 동시 수행
 - 최악의 경우에도 Proxy auth cache TTL(60초)을 초과하지 않도록 보장
+
+### IAM 역할 및 비밀값 주입
+
+AWS 배포에서 보안 경계는 코드뿐 아니라 역할 분리와 비밀값 주입 방식으로도 보장해야 한다.
+
+| 구성요소 | 원칙 |
+|---------|------|
+| Token Service Lambda | Aurora/RDS Proxy, DynamoDB, Secrets Manager, KMS에 필요한 최소 권한만 가진다 |
+| Proxy task role | Bedrock 호출, DB 접속, internal invalidation에 필요한 최소 데이터 plane 권한만 가진다 |
+| Proxy task execution role | 이미지 pull, 로그 전송, secret injection처럼 실행 시점 권한만 가진다 |
+| Secret 주입 | DB credential, KMS key ARN, API endpoint는 Secrets Manager 또는 SSM Parameter Store를 통해 전달한다 |
+| 금지 사항 | long-lived credential의 코드 저장, broad `*` resource policy, user credential 재사용 |
+
+운영 환경에서는 Lambda와 Fargate 모두 plaintext secret를 CDK 코드에 하드코딩하지 않으며, 환경별 secret reference만 CDK context/config에 둔다.
 
 ### TLS 보호
 
@@ -793,106 +896,27 @@ Anthropic 호환 에러 형식을 유지한다:
 
 ## 관측성 설계 (Observability Design)
 
-### Metrics
+현재 범위의 관측성은 "Proxy 서버가 정상 동작하는지 빠르게 확인"하는 최소 운영 가시성만 포함한다. 별도 분산 추적, OTEL collector, X-Ray 연동, 커스텀 대시보드 구축은 현재 범위 밖이다.
 
-#### LLM Proxy Metrics
+### 최소 운영 신호
 
-| 메트릭 | 타입 | 설명 | 차원 |
-|--------|------|------|------|
-| `proxy.request.count` | Counter | 총 요청 수 | model, decision, user_id |
-| `proxy.request.success_rate` | Gauge | 성공률 | model |
-| `proxy.auth.failure_rate` | Counter | 인증 실패 수 | reason |
-| `proxy.policy.denial_rate` | Counter | 정책 차단 수 | policy_type, reason |
-| `proxy.quota.exceeded_count` | Counter | quota 초과 수 | scope_type, user_id |
-| `proxy.model.usage` | Counter | 모델별 사용량 | model, user_id |
-| `proxy.tokens.input` | Counter | 입력 토큰 수 | model, user_id, team_id |
-| `proxy.tokens.output` | Counter | 출력 토큰 수 | model, user_id, team_id |
-| `proxy.cost.estimated_usd` | Counter | 추정 비용 | model, user_id, team_id |
-| `proxy.latency.total_ms` | Histogram | 전체 응답 지연 | model, p50/p95 |
-| `proxy.latency.bedrock_ms` | Histogram | Bedrock 호출 지연 | model, region |
-| `proxy.auth_cache.hit_rate` | Gauge | auth cache 적중률 | - |
+- ALB target group은 `/health` 기준 health check를 수행한다.
+- ECS Fargate service와 Token Service Lambda는 CloudWatch Logs에 기본 애플리케이션 로그를 남긴다.
+- API Gateway, ALB, ECS, Lambda의 기본 request/error/latency 메트릭은 CloudWatch에서 조회 가능해야 한다.
+- 모든 실패 로그는 `request_id`를 포함해야 한다.
 
-#### Token Service Metrics
+### 로그 원칙
 
-| 메트릭 | 타입 | 설명 |
-|--------|------|------|
-| `token_service.ddb_cache.hit_rate` | Gauge | DynamoDB 캐시 적중률 |
-| `token_service.pg.lookup_rate` | Counter | PostgreSQL 조회 수 |
-| `token_service.key.issued_count` | Counter | 신규 Virtual Key 발급 수 |
-| `token_service.key.reused_count` | Counter | 기존 Virtual Key 재사용 수 |
-| `token_service.auth.failure_count` | Counter | 인증 실패 수 |
-| `token_service.latency_ms` | Histogram | Token Service 응답 지연 |
+- 구조화된 JSON 로그를 사용한다.
+- 프롬프트 원문과 Virtual Key 평문은 로그에 남기지 않는다.
+- 일반 운영 로그는 user_id 중심으로 남기고, 감사 목적의 상세 정보는 별도 audit 저장소로 보낸다.
 
-### Logs
+### 운영 확인 포인트
 
-구조화된 JSON 로그를 사용하며, 모든 로그에 `request_id`를 포함한다.
-
-#### 로그 유형
-
-| 로그 유형 | 컴포넌트 | 설명 |
-|----------|---------|------|
-| auth_decision | Token Service, Proxy | 인증 판단 결과 (success/failure, reason) |
-| cache_lookup | Token Service | DDB 캐시 조회 결과 (hit/miss) |
-| policy_decision | Policy Engine | 정책 평가 결과 (allowed/denied, policy_id) |
-| quota_check | Quota Engine | quota 확인 결과 (current_usage, limit, decision) |
-| bedrock_invocation | Bedrock Adapter | Bedrock 호출 결과 (model, region, latency, tokens) |
-| admin_action | Admin API | 관리 작업 (actor, action, target) |
-| cache_invalidation | Admin API | 캐시 무효화 이벤트 |
-| provisioning | Admin API | 사용자/팀 프로비저닝 이벤트 |
-
-#### 로그 형식 예시
-
-```json
-{
-  "timestamp": "2026-04-01T10:30:00Z",
-  "level": "INFO",
-  "request_id": "req_abc123",
-  "component": "policy_engine",
-  "event": "policy_decision",
-  "user_id": "identity-center-user-id",
-  "user_email": "alice@example.com",
-  "model": "sonnet",
-  "decision": "allowed",
-  "evaluated_policies": ["user_policy_1", "global_default"],
-  "effective_policy": "user_policy_1"
-}
-```
-
-#### 로깅 위생 원칙
-
-- 프롬프트 원문은 기본적으로 저장하지 않는다.
-- Virtual Key 평문은 로그에 기록하지 않는다 (key_prefix만 기록).
-- 감사 목적상 필요한 최소 메타데이터만 저장한다.
-- PII(개인식별정보)는 감사 로그에만 포함하고, 일반 운영 로그에서는 user_id만 사용한다.
-
-### Traces
-
-분산 추적을 통해 요청의 전체 경로를 추적한다.
-
-```mermaid
-flowchart LR
-    A["Claude Code<br/>request_id 생성"] --> B["ALB"]
-    B --> C["Proxy: auth"]
-    C --> D["Proxy: model_resolve"]
-    D --> E["Proxy: policy_eval"]
-    E --> F["Proxy: quota_check"]
-    F --> G["Proxy: bedrock_call"]
-    G --> H["Proxy: response_transform"]
-    H --> I["Proxy: audit_log"]
-```
-
-- 모든 span에 `request_id`를 전파한다.
-- 주요 span: `auth`, `model_resolve`, `policy_eval`, `quota_check`, `bedrock_call`, `audit_log`
-- AWS X-Ray 또는 OpenTelemetry 기반 구현을 권장한다.
-
-### 권장 모니터링 관점
-
-웹 대시보드는 현재 범위 밖이지만, 외부 관측 도구에서 아래 관점을 구성할 수 있어야 한다.
-
-1. **운영 관점**: request count, success rate, p50/p95 latency, error rate
-2. **보안 관점**: auth failure rate, policy denial rate, revoked key 사용 시도
-3. **비용 관점**: 사용자별/팀별/모델별 토큰 사용량, 비용 추정치
-4. **캐시 관점**: DDB cache hit rate, auth cache hit rate, PostgreSQL lookup rate
+1. ALB target health가 정상인지 확인할 수 있어야 한다.
+2. ECS service의 desired/running task 수와 기본 오류율을 확인할 수 있어야 한다.
+3. Token Service와 Proxy의 오류 로그를 CloudWatch에서 `request_id` 기준으로 찾을 수 있어야 한다.
+4. API Gateway/ALB 4xx, 5xx, latency 추이를 기본 메트릭으로 확인할 수 있어야 한다.
 
 
 
@@ -986,4 +1010,4 @@ flowchart LR
 10. **cache miss는 사용자 부재를 의미하지 않는다.**
     DDB miss 시에는 원장(PostgreSQL) 재조회 기회를 가져야 하며, 원장 확인이 불가능한 경우에는 허용이 아니라 거부 쪽으로 수렴한다.
 11. **모든 중요한 행위는 추적 가능해야 한다.**
-    runtime 요청과 admin 변경 작업은 모두 `request_id` 또는 actor context와 함께 usage/audit/log/trace에 남아야 하며, 프롬프트 원문과 Virtual Key 평문은 저장하지 않는다.
+    runtime 요청과 admin 변경 작업은 모두 `request_id` 또는 actor context와 함께 usage/audit/log에 남아야 하며, 프롬프트 원문과 Virtual Key 평문은 저장하지 않는다.
