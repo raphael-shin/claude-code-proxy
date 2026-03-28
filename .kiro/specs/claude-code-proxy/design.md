@@ -17,7 +17,7 @@ Claude Code Proxy는 조직의 SSO 기반 인증을 통해 Claude Code 사용자
 - DynamoDB는 cache이고 PostgreSQL은 source of truth다
 - `cache miss → PostgreSQL user lookup → 기존 key 조회 → 필요 시에만 발급 → DDB 갱신`
 - Bedrock 호출 권한은 Proxy 서비스 역할에만 부여한다
-- API Gateway, Lambda, ALB, ECS Fargate, Aurora, DynamoDB, IAM, observability 리소스는 수동 콘솔 설정이 아니라 CDK stack으로 관리한다
+- API Gateway, Lambda, ALB, ECS Fargate, Aurora, DynamoDB, IAM, observability 리소스는 수동 콘솔 설정이 아니라 CDK app으로 관리한다
 
 ## 아키텍처 (Architecture)
 
@@ -149,9 +149,15 @@ sequenceDiagram
     PX-->>CC: 응답 반환
 ```
 
-### AWS 배포 토폴로지 및 CDK 스택 경계
+### AWS 배포 토폴로지 및 CDK 앱 구조
 
-Claude Code Proxy의 AWS 리소스는 애플리케이션 코드의 부수 설정이 아니라 시스템 설계의 일부다. 따라서 환경별(`dev`, `staging`, `prod`) 배포는 동일한 CDK app에서 synth/deploy 가능한 stack 집합으로 정의하고, 수동 콘솔 설정에 의존하지 않는다.
+Claude Code Proxy의 AWS 리소스는 애플리케이션 코드의 부수 설정이 아니라 시스템 설계의 일부다. 따라서 환경별(`dev`, `staging`, `prod`) 배포는 동일한 CDK app에서 synth/deploy 가능한 단일 stack + construct 조합으로 정의하고, 수동 콘솔 설정에 의존하지 않는다.
+
+현재 범위에서는 배포 원자성과 rollback 단순성을 위해 **단일 `ClaudeCodeProxyStack`** 을 사용한다. 논리적 경계는 별도 stack이 아니라 L3 construct로 유지한다. 멀티 스택 분리는 다음 조건 중 하나가 생길 때만 재검토한다.
+
+- 다른 리전 또는 다른 account에 리소스를 분리 배포해야 할 때
+- 단일 CloudFormation stack이 리소스 수 제한에 근접할 때
+- 조직 표준상 공용 네트워크/플랫폼 리소스를 별도 CDK app으로 독립 운영해야 할 때
 
 #### 배포 토폴로지
 
@@ -163,16 +169,29 @@ Claude Code Proxy의 AWS 리소스는 애플리케이션 코드의 부수 설정
 | Data plane | Aurora PostgreSQL Serverless v2, optional RDS Proxy, DynamoDB, Secrets Manager, KMS | 원장, cache, secret, encryption key를 분리 관리 |
 | Observability | CloudWatch Logs, API Gateway/Lambda/ALB/ECS 기본 메트릭, ALB health check | Proxy와 Token Service의 기본 운영 상태를 빠르게 확인 |
 
-#### CDK 스택 구성
+#### CDK 구성 원칙
 
-| Stack | 주요 리소스 | 의존 관계 |
-|------|-------------|-----------|
-| `NetworkStack` | VPC, subnet, route table, security group, optional VPC endpoint | 없음 |
-| `DataStack` | Aurora Serverless v2, DB secret, subnet group, parameter group, optional RDS Proxy, DynamoDB cache table, KMS key | `NetworkStack` |
-| `TokenServiceStack` | API Gateway, stage/access logs, Lambda integration, invoke permission, optional request authorizer hook, basic log retention/metric wiring | `NetworkStack`, `DataStack` |
-| `ProxyRuntimeStack` | ECS Cluster, TaskDefinition, Fargate Service, ALB, HTTPS listener, ACM certificate, WAF association, autoscaling, log groups, ALB health check | `NetworkStack`, `DataStack` |
+| 레벨 | 구성 | 역할 |
+|------|------|------|
+| App | `app.py` | 환경별 설정을 조합하고 `ClaudeCodeProxyStack`를 생성 |
+| Stack | `ClaudeCodeProxyStack` | 네트워크, 데이터, bootstrap ingress, runtime ingress를 하나의 배포 단위로 묶음 |
+| L3 Construct | `NetworkConstruct`, `DataPlaneConstruct`, `TokenServiceConstruct`, `ProxyRuntimeConstruct` | 논리적 경계를 유지하면서 여러 L2 리소스를 조합 |
+| Aspect / Guard | `cdk-nag` 또는 custom aspect | synth 단계에서 보안/표준 위반을 검출 |
 
-권장 배포 순서는 `NetworkStack → DataStack → TokenServiceStack / ProxyRuntimeStack` 이다. CDK app은 환경별 account/region, naming, tag, capacity, secret ARN 같은 설정을 한 곳에서 관리해야 한다.
+이 구조는 cross-stack export/import를 피하고, 하나의 배포 또는 rollback에서 전체 시스템을 일관되게 갱신하기 위한 것이다.
+
+#### 환경 설정 원칙
+
+- 환경별 설정은 `app.py`에서 생성한 typed stack props로 `ClaudeCodeProxyStack`에 전달한다.
+- `config.py`는 stack props를 만들기 위한 profile/model 정의 위치로 사용한다.
+- CDK context(`cdk.json`)나 임의 환경 변수는 애플리케이션 동작 설정의 source of truth로 사용하지 않는다.
+- secret ARN, capacity, naming, tag, optional authorizer enablement 같은 값은 stack props 안에서 명시적으로 전달한다.
+
+#### Construct 선택 원칙
+
+- 기본은 L2 construct를 사용한다.
+- 여러 리소스를 반복 가능한 패턴으로 묶을 때만 L3 construct를 만든다.
+- L1 construct는 필요한 L2/L3가 없거나 특정 CloudFormation 필드를 직접 다뤄야 할 때만 사용한다.
 
 #### IAM 역할 경계
 
@@ -183,9 +202,11 @@ Claude Code Proxy의 AWS 리소스는 애플리케이션 코드의 부수 설정
 | Proxy task execution role | ECR image pull, CloudWatch Logs write, secret injection에 필요한 실행 권한 |
 | API Gateway invoke permission | 지정된 API/stage에서만 Token Service Lambda 호출 허용 |
 
+IAM 권한은 가능한 한 수동 policy statement보다 L2 construct의 `grant_*` 패턴을 우선 사용해 최소 권한으로 부여한다.
+
 #### API Gateway 인증 Lambda 배치 원칙
 
-기본 bootstrap 경로는 `API Gateway IAM Auth + Token Service Lambda integration` 이다. 다만 조직 정책상 API Gateway 단계에 별도 Lambda 기반 인증 또는 request normalization이 필요한 경우, 해당 Lambda는 CDK `TokenServiceStack` 안의 별도 construct로 모델링한다.
+기본 bootstrap 경로는 `API Gateway IAM Auth + Token Service Lambda integration` 이다. 다만 조직 정책상 API Gateway 단계에 별도 Lambda 기반 인증 또는 request normalization이 필요한 경우, 해당 Lambda는 같은 `ClaudeCodeProxyStack` 안의 `TokenServiceConstruct` 내부 옵션 construct로 모델링한다.
 
 - API Gateway auth Lambda는 pre-auth 판단 또는 route-level principal context 반환만 담당한다.
 - Virtual Key 발급, username → `user_id` 해석, PostgreSQL/DynamoDB 원장 판단은 여전히 Token Service Lambda가 담당한다.
@@ -674,17 +695,14 @@ scripts/
   apiKeyHelper             # Claude Code client-side bootstrap helper
 
 infra/
-  app.py                   # CDK app entrypoint
-  config.py                # 환경별 account/region/naming/config
-  stacks/
-    network_stack.py       # VPC, subnet, security group, endpoint
-    data_stack.py          # Aurora, RDS Proxy, DynamoDB, KMS, secret
-    token_service_stack.py # API Gateway, Lambda, throttling, optional authorizer
-    proxy_runtime_stack.py # ECS/Fargate, ALB, WAF, ACM, autoscaling
+  app.py                   # CDK app entrypoint, profile -> stack props 조립
+  config.py                # typed environment profile / stack props 정의
+  stack.py                 # ClaudeCodeProxyStack
   constructs/
-    token_service_api.py   # API Gateway + Lambda wiring
-    proxy_service.py       # ECS service + ALB wiring
-    data_plane.py          # shared data resources wiring
+    network_construct.py   # VPC, subnet, security group, endpoint
+    data_plane_construct.py# Aurora, RDS Proxy, DynamoDB, KMS, secret
+    token_service_construct.py # API Gateway + Lambda + optional authorizer
+    proxy_runtime_construct.py # ECS service + ALB wiring
 
 tests/
   api/
@@ -710,7 +728,7 @@ tests/
 - `repositories`는 PostgreSQL, DynamoDB, usage/audit 저장소 같은 외부 상태 접근 경계를 제공한다. HTTP 타입이나 FastAPI 타입을 알지 못해야 한다.
 - `security`는 해시, key 생성, 암복호화 같은 순수 보안 유틸리티를 제공하며, 상위 레이어가 공통으로 사용한다.
 - `scripts`는 Claude Code 단말에서 실행되는 클라이언트 부트스트랩 코드다. 서버 런타임 패키지와 강결합하지 않도록 유지한다.
-- `infra`는 CDK composition root다. 애플리케이션 런타임 코드의 business rule을 재구현하지 않고, 네트워크/권한/배포 단위의 AWS 리소스를 선언한다.
+- `infra`는 CDK composition root다. 하나의 stack 안에서 construct 조합으로 인프라를 선언하며, 애플리케이션 런타임 코드의 business rule을 재구현하지 않는다.
 - `tests`는 production package 구조를 따라가며, 초기 vertical slice에서는 `tests/fakes`의 in-memory fake를 기본 검증 수단으로 사용한다.
 
 이 골격은 "상위 패키지 경계"를 고정하는 것이지 세부 구현체를 과도하게 확정하는 것은 아니다. 실제 AWS SDK 연동, PostgreSQL 구현, DynamoDB adapter, 기본 로그/메트릭 wiring은 이후 increment에서 같은 경계 안에 추가한다.
@@ -770,7 +788,7 @@ AWS 배포에서 보안 경계는 코드뿐 아니라 역할 분리와 비밀값
 | Secret 주입 | DB credential, KMS key ARN, API endpoint는 Secrets Manager 또는 SSM Parameter Store를 통해 전달한다 |
 | 금지 사항 | long-lived credential의 코드 저장, broad `*` resource policy, user credential 재사용 |
 
-운영 환경에서는 Lambda와 Fargate 모두 plaintext secret를 CDK 코드에 하드코딩하지 않으며, 환경별 secret reference만 CDK context/config에 둔다.
+운영 환경에서는 Lambda와 Fargate 모두 plaintext secret를 CDK 코드에 하드코딩하지 않으며, 환경별 secret reference만 typed stack props/config model을 통해 전달한다.
 
 ### TLS 보호
 
@@ -917,6 +935,12 @@ Anthropic 호환 에러 형식을 유지한다:
 2. ECS service의 desired/running task 수와 기본 오류율을 확인할 수 있어야 한다.
 3. Token Service와 Proxy의 오류 로그를 CloudWatch에서 `request_id` 기준으로 찾을 수 있어야 한다.
 4. API Gateway/ALB 4xx, 5xx, latency 추이를 기본 메트릭으로 확인할 수 있어야 한다.
+
+### CDK 테스트 원칙
+
+- `aws_cdk.assertions.Template.from_stack`와 `has_resource_properties`를 사용한 fine-grained assertion을 기본으로 한다.
+- snapshot test는 보조 수단으로 사용하며, 핵심 보안/네트워크/권한 계약은 반드시 fine-grained assertion으로 고정한다.
+- 빠른 unit-style synth test를 우선하고, 실제 배포 기반 integration test는 후속 검증 단계에서 별도로 추가한다.
 
 
 
