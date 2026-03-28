@@ -1,0 +1,68 @@
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Python bytecode / caches
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+.pytest_cache/
+.hypothesis/
+.mypy_cache/
+.ruff_cache/
+.pyre/
+
+# Test / coverage artifacts
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.benchmarks/
+
+# Virtual environments / local Python setup
+.venv/
+venv/
+env/
+ENV/
+.python-version
+pip-wheel-metadata/
+.eggs/
+*.egg-info/
+build/
+dist/
+site/
+
+# Local secrets / config
+.env
+.env.*
+!.env.example
+.envrc
+*.pem
+*.key
+*.crt
+
+# Logs / runtime artifacts
+*.log
+logs/
+tmp/
+temp/
+*.pid
+
+# Local databases / state
+*.db
+*.sqlite
+*.sqlite3
+
+# AWS / infrastructure local artifacts
+.aws-sam/
+.serverless/
+cdk.out/
+
+# Misc local archives
+*.zip
+*.tar
+*.tar.gz
