@@ -15,7 +15,7 @@
 - **LLM_Proxy**: ALB 뒤에서 동작하는 FastAPI 기반 프록시 서비스로, Virtual Key 검증, 정책 평가, Bedrock 호출을 수행
 - **Policy_Engine**: LLM Proxy 내부에서 사용자, 그룹, 부서, 모델 기준의 접근 정책을 평가하는 엔진
 - **Quota_Engine**: LLM Proxy 내부에서 사용자 및 팀 단위 budget/quota를 평가하는 엔진
-- **Model_Resolver**: 요청 모델명을 logical model로 변환하고, logical model을 실제 Bedrock 모델 ID로 매핑하는 컴포넌트
+- **Model_Resolver**: 요청 모델명을 logical model로 변환하고, logical model을 실제 Bedrock Converse 모델 ID와 capability 집합으로 매핑하는 컴포넌트
 - **IAM_Identity_Center**: AWS SSO 허브로, 조직 Active Directory와 연동하여 사용자 인증을 제공
 - **DynamoDB_Cache**: Token Service의 Virtual Key lookup 캐시 역할을 하는 DynamoDB 테이블
 - **Aurora_PostgreSQL**: Aurora PostgreSQL Serverless v2로, 사용자, Virtual Key, 정책, usage의 source of truth
@@ -118,8 +118,11 @@
 6. WHEN 사용량이 hard_limit에 도달하면, THE Quota_Engine SHALL 요청을 차단하고 THE LLM_Proxy SHALL Bedrock 호출 전에 요청을 종료한다.
 7. WHEN 사용자 단위 policy, 팀 단위 policy, 전역 default policy가 동시에 존재하면, THE Quota_Engine SHALL 가장 보수적인 정책(가장 낮은 hard_limit, 가장 낮은 budget limit)을 최종 결정으로 적용한다.
 8. THE Quota_Engine SHALL budget metric으로 tokens와 cost_usd를 지원한다.
-9. THE Quota_Engine SHALL 비용 산정 시 model_pricing_catalog의 요청 시점 단가 snapshot을 사용하여 estimated_input_cost_usd, estimated_output_cost_usd, estimated_total_cost_usd를 계산한다.
+9. THE Quota_Engine SHALL 비용 산정 시 model_pricing_catalog의 요청 시점 단가 snapshot을 사용하여 estimated_input_cost_usd, estimated_output_cost_usd, estimated_cache_write_cost_usd, estimated_cache_read_cost_usd, estimated_total_cost_usd를 계산한다.
 10. WHEN 동일 사용자에게 여러 팀 policy가 적용되면, THE Quota_Engine SHALL 가장 보수적인 정책(가장 낮은 hard_limit, 가장 낮은 budget limit)을 적용한다.
+11. THE model_pricing_catalog SHALL 초기 구현에서 Admin_API 또는 운영 CLI를 통해서만 갱신되며, 외부 vendor pricing 자동 동기화는 현재 범위에 포함하지 않는다.
+12. THE Quota_Engine SHALL 요청 admission과 usage snapshot 계산에 동일한 활성 pricing row를 사용해야 하며, runtime은 이를 인메모리 cache로 제공하더라도 Admin_API 갱신 시 즉시 reload 할 수 있어야 한다.
+13. THE Audit_Logger SHALL 각 usage event에 비용 계산에 사용한 `pricing_catalog_id` 또는 동등한 immutable pricing snapshot reference를 함께 기록한다.
 
 ### Requirement 7: 모델 라우팅 및 Bedrock 호출
 
@@ -127,15 +130,40 @@
 
 #### Acceptance Criteria
 
-1. WHEN Claude_Code가 모델명을 포함한 요청을 보내면, THE Model_Resolver SHALL 요청 모델명을 logical model로 변환하고, logical model을 실제 Bedrock 모델 ID로 매핑한다.
-2. IF 요청 모델명이 허용 모델 목록에 없으면, THEN THE LLM_Proxy SHALL 요청을 거부한다.
-3. THE Bedrock_Adapter SHALL Anthropic 호환 inbound 요청을 Bedrock Converse API 형식으로 변환한다.
-4. THE Bedrock_Adapter SHALL Bedrock 응답을 Anthropic 호환 response 또는 SSE stream으로 역변환한다.
-5. THE LLM_Proxy SHALL streaming 응답을 지원한다.
-6. THE LLM_Proxy SHALL Bedrock 호출 시 Proxy 서비스 역할의 자격증명만 사용한다.
-7. THE LLM_Proxy SHALL 사용자에게 Bedrock endpoint 직접 호출 권한을 부여하지 않는다.
-8. WHEN 운영자가 모델 매핑을 변경하면, THE Admin_API SHALL 변경사항을 LLM_Proxy에 반영한다.
-9. THE Model_Resolver SHALL Bedrock cross-region inference profile을 기본 target으로 사용할 수 있다.
+1. WHEN Claude_Code가 모델명을 포함한 요청을 보내면, THE Model_Resolver SHALL 요청 모델명을 logical model로 변환하고, logical model을 실제 Bedrock Converse 모델 ID로 매핑한다.
+2. THE Model_Resolver SHALL 매핑 결과에 최소한 `bedrock_api_route=converse`, `bedrock_model_id`, `aws_region_name` 또는 cross-region inference profile, `supports_native_structured_output`, `supports_reasoning`, `supports_prompt_cache_ttl`, `supports_disable_parallel_tool_use` capability를 포함한다.
+3. IF 요청 모델명이 허용 모델 목록에 없거나 Bedrock Converse 지원 모델이 아니면, THEN THE LLM_Proxy SHALL 요청을 거부한다.
+4. THE LLM_Proxy SHALL Bedrock runtime 호출에 `Converse` 또는 `ConverseStream`만 사용하고 `InvokeModel` 계열 경로를 사용하지 않는다.
+5. THE Bedrock_Adapter SHALL Anthropic 호환 inbound 요청을 Bedrock `Converse` 또는 `ConverseStream` 요청 형식으로 변환한다.
+6. THE Bedrock_Adapter SHALL Bedrock `Converse` 또는 `ConverseStream` 응답을 Anthropic 호환 response 또는 SSE stream으로 역변환한다.
+7. THE Bedrock_Adapter SHALL structured output 처리에서 `supports_native_structured_output=true` 이고 명시적 JSON schema가 제공된 경우에만 Bedrock native `outputConfig.textFormat`을 사용한다.
+8. THE Bedrock_Adapter SHALL native structured output용 schema를 Bedrock 요구사항에 맞게 정규화하고, 모든 object node에 `additionalProperties: false`를 재귀적으로 보장한다.
+9. THE Bedrock_Adapter SHALL native structured output을 사용할 수 없는 경우 schema 없는 `json_object`를 포함한 unsupported structured output 요청을 Converse tool fallback 규칙으로 처리하거나, 운영 정책에 따라 명시적으로 거부하되 동작을 일관되게 유지한다.
+10. THE Bedrock_Adapter SHALL reasoning 요청에서 외부 `reasoning_effort` 입력을 내부 canonical `thinking` 구성으로 정규화할 수 있어야 한다.
+11. THE Bedrock_Adapter SHALL `thinking.budget_tokens`가 Bedrock 최소 요구치보다 작은 경우 이를 보정하거나 요청을 거부하되, 구현 선택은 전역적으로 일관되어야 한다.
+12. THE Bedrock_Adapter SHALL reasoning이 활성화된 turn에서 forced tool choice를 허용하지 않으며, 필요 시 `auto`로 완화한다.
+13. THE Bedrock_Adapter SHALL Bedrock 응답의 reasoning 관련 provider raw field와 함께 Anthropic 호환 `thinking_blocks`를 보존한다.
+14. THE LLM_Proxy SHALL 후속 turn reasoning continuity를 위해 assistant history의 `thinking_blocks`를 보존하여 재전달해야 하며, 이전 reasoning turn의 `thinking_blocks`를 신뢰성 있게 복원할 수 없는 경우 reasoning을 비활성화해야 한다.
+15. THE LLM_Proxy SHALL streaming 응답을 지원한다.
+16. THE LLM_Proxy SHALL Bedrock 호출 시 Proxy 서비스 역할의 자격증명만 사용한다.
+17. THE LLM_Proxy SHALL 사용자에게 Bedrock endpoint 직접 호출 권한을 부여하지 않는다.
+18. WHEN 운영자가 모델 매핑을 변경하면, THE Admin_API SHALL 변경사항을 LLM_Proxy에 반영한다.
+19. THE Model_Resolver SHALL Bedrock cross-region inference profile을 기본 target으로 사용할 수 있다.
+20. THE Bedrock_Adapter SHALL provider usage metadata에 포함된 Bedrock 기준 `input_tokens`, `output_tokens`, `total_tokens`, `cache_write_input_tokens`, `cache_read_input_tokens`, `cache_details`를 non-streaming 및 streaming 응답 모두에서 보존한다. `total_tokens`는 provider가 반환한 의미를 그대로 유지하며, 내부에서 재계산하지 않는다.
+21. THE LLM_Proxy SHALL 토큰 사용량 원장에 Bedrock provider usage 지표만을 단순 저장 기준으로 사용하고, 파생 또는 normalized token total을 별도 필수 컬럼으로 요구하지 않는다.
+22. THE Bedrock_Adapter SHALL non-streaming response와 streaming SSE 모두에서 design.md에 정의된 Anthropic ↔ Converse 필드 매핑 계약을 일관되게 적용한다.
+
+### Requirement 7A: Claude 4.5+ Feature Gate
+
+**User Story:** 플랫폼 엔지니어로서, Claude 4.5+/4.6+ Bedrock Converse 모델에서만 열리는 기능을 별도 capability gate로 관리하기를 원한다. 이를 통해 route 지원 여부와 기능 지원 여부를 혼동하지 않도록 한다.
+
+#### Acceptance Criteria
+
+1. THE Model_Resolver SHALL Claude 4.5+/4.6+ 전용 capability를 일반 Converse 지원 여부와 분리해서 관리한다.
+2. THE LLM_Proxy SHALL `supports_prompt_cache_ttl=true` 인 경우에만 `cache_control.ttl` 값 `5m` 또는 `1h`를 Bedrock 요청으로 전달한다.
+3. THE LLM_Proxy SHALL `supports_disable_parallel_tool_use=true` 인 경우에만 `parallel_tool_calls=false`를 Bedrock `disable_parallel_tool_use=true` 규칙으로 변환한다.
+4. THE LLM_Proxy SHALL Claude 4.5+/4.6+ capability gate를 모델명 substring 추론에만 의존하지 않고 resolver source of truth에서 관리할 수 있어야 한다.
+5. THE LLM_Proxy SHALL route가 Converse라는 이유만으로 4.5+ feature gate를 자동 허용하지 않는다.
 
 ### Requirement 8: 감사 로깅 및 사용량 추적
 
@@ -144,13 +172,15 @@
 #### Acceptance Criteria
 
 1. THE LLM_Proxy SHALL 모든 요청에 고유한 request_id를 부여한다.
-2. THE Audit_Logger SHALL 각 요청에 대해 user_id, user_email, groups, 요청 모델, 해석된 모델, input_tokens, output_tokens, total_tokens, 요청 시각, 정책 결과, denial_reason, latency_ms를 기록한다.
+2. THE Audit_Logger SHALL 각 요청에 대해 user_id, user_email, groups, 요청 모델, 해석된 모델, input_tokens, output_tokens, cache_write_input_tokens, cache_read_input_tokens, cache_details, total_tokens, 요청 시각, 정책 결과, denial_reason, latency_ms를 기록한다.
 3. THE Audit_Logger SHALL 인증 실패와 정책 차단 이벤트를 별도로 기록한다.
 4. THE Audit_Logger SHALL 최소한 auth_success, auth_failure, policy_denied, quota_hard_limit_blocked, virtual_key_rotated, virtual_key_revoked, model_route_resolved, user_provisioned, team_membership_changed 유형의 감사 이벤트를 기록한다.
 5. THE Audit_Logger SHALL 감사 로그를 변경 불가능한 저장소 또는 중앙 로그 시스템으로 전달한다.
 6. THE Audit_Logger SHALL 프롬프트 원문을 기본적으로 저장하지 않고, 감사 목적상 필요한 최소 메타데이터만 저장한다.
-7. THE LLM_Proxy SHALL 사용자별 토큰 사용량과 비용 추정치를 usage_events에 집계한다.
+7. THE LLM_Proxy SHALL 사용자별 토큰 사용량과 비용 추정치를 usage_events에 집계하며, cache_write_input_tokens, cache_read_input_tokens, cache_details, estimated_cache_write_cost_usd, estimated_cache_read_cost_usd를 별도 필드로 보존한다.
 8. WHEN Bedrock 호출 주체가 Proxy 역할이더라도, THE Audit_Logger SHALL 사용자 단위 추적이 가능하도록 사용자 식별 로그를 별도로 유지한다.
+9. THE Audit_Logger와 usage_events SHALL 실제 Bedrock `Converse` 또는 `ConverseStream` 응답의 usage만 최종 토큰 사용량 source of truth로 사용하고, `/v1/messages/count_tokens` 결과로 최종 usage를 대체하거나 보정하지 않는다.
+10. WHEN 사용자가 여러 팀에 속해 있으면, THE Audit_Logger SHALL 명시적 primary team membership이 있으면 그 team_id를 기록하고, primary 지정이 없고 active team이 하나뿐이면 그 team_id를 기록하며, 그 외에는 `NULL`을 기록한다.
 
 ### Requirement 9: 운영 관리
 
@@ -168,9 +198,11 @@
 8. THE Admin_API SHALL 특정 사용자, 그룹, 부서를 차단할 수 있다.
 9. THE Admin_API SHALL 특정 모델을 전역 차단 또는 허용할 수 있다.
 10. WHEN 운영자가 DynamoDB_Cache 무효화를 요청하면, THE Admin_API SHALL 캐시를 무효화하여 다음 apiKeyHelper 요청 시 Aurora_PostgreSQL 재조회가 수행되도록 한다.
-11. THE Admin_API SHALL public runtime API와 분리된 보호 경로에서 제공되며, 운영자 인증은 조직 SSO 기반 admin identity를 사용한다.
-12. THE Admin_API SHALL 사용자별, 팀별, 모델별 usage와 cost estimate를 조회할 수 있다.
-13. THE Admin_API SHALL 감사 이벤트를 조회할 수 있다.
+11. THE Admin_API SHALL public runtime ALB와 분리된 전용 admin ingress에서 제공되어야 한다.
+12. THE Admin_API SHALL 조직 SSO에서 얻은 AWS 임시 자격증명의 SigV4 요청과 API Gateway IAM Auth를 사용하여 운영자를 인증한다.
+13. THE Admin_API SHALL PostgreSQL `admin_identities` allowlist를 source of truth로 사용하여 운영자 권한을 판별해야 하며, 최소 `operator`와 `auditor` role을 구분해야 한다.
+14. THE Admin_API SHALL 사용자별, 팀별, 모델별 usage와 cost estimate를 조회할 수 있다.
+15. THE Admin_API SHALL 감사 이벤트를 조회할 수 있다.
 
 ### Requirement 10: 사용자 프로비저닝
 
@@ -212,6 +244,8 @@
 4. THE DynamoDB_Cache SHALL user_id 기준 캐시 키와 Aurora_PostgreSQL의 users.id가 동일한 user_id를 사용한다.
 5. IF DynamoDB_Cache의 사용자 식별자와 Aurora_PostgreSQL의 사용자 식별자가 일치하지 않으면, THEN THE Token_Service SHALL 기존 Virtual_Key 조회를 허용하지 않는다.
 6. THE DynamoDB_Cache SHALL encrypted key reference만 저장하고, plaintext key를 저장하지 않는다.
+7. THE Aurora_PostgreSQL application schema SHALL Alembic migration으로만 변경되어야 하며, CDK custom resource나 앱 startup DDL로 직접 변경하지 않는다.
+8. THE deployed AWS environments SHALL Lambda와 ECS Fargate에서 Aurora로 연결할 때 RDS Proxy를 기본 경로로 사용하고, direct DB connection은 local/test harness에서만 허용한다.
 
 ### Requirement 13: 관측성 및 모니터링
 
@@ -252,6 +286,9 @@
 4. THE LLM_Proxy SHALL GET /ready endpoint를 제공하여 DB 연결, resolver 초기화, 필수 dependency 상태를 확인하는 readiness probe를 지원한다.
 5. THE LLM_Proxy SHALL Anthropic 호환 inbound API 형식을 유지한다.
 6. THE LLM_Proxy SHALL 무중단 배포가 가능하다.
+7. THE LLM_Proxy SHALL `/v1/messages/count_tokens`를 request validation, trimming, preflight estimation 용도로만 사용하고, 최종 usage ledger source로 사용하지 않는다.
+8. THE LLM_Proxy SHALL `/v1/messages/count_tokens`에서 `/v1/messages`와 동일한 normalized Converse request mapping을 만든 뒤 Bedrock `CountTokens`의 `input.converse` 형식으로 호출해야 한다.
+9. IF Bedrock `CountTokens` 호출이 실패하거나 지원되지 않으면, THEN THE LLM_Proxy SHALL local tokenizer나 heuristic fallback 없이 해당 실패를 그대로 반환해야 한다.
 
 ### Requirement 16: 성능 요구사항
 
