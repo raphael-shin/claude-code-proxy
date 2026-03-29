@@ -38,7 +38,7 @@
 2. WHEN apiKeyHelper가 Virtual_Key를 요청받으면, THE apiKeyHelper SHALL 로컬 캐시에 유효한 Virtual_Key가 있는지 확인한다.
 3. WHILE 로컬 캐시에 유효한 Virtual_Key가 존재하면, THE apiKeyHelper SHALL 해당 Virtual_Key를 즉시 반환한다.
 4. WHEN 로컬 캐시에 유효한 Virtual_Key가 없으면, THE apiKeyHelper SHALL 사용자의 SSO 세션 기반 AWS 임시 자격증명을 사용하여 Token_Service endpoint를 SigV4 서명으로 호출한다.
-5. WHEN 사용자의 SSO 세션이 만료되었으면, THE apiKeyHelper SHALL 브라우저 SSO 로그인을 통해 사용자를 재인증한다.
+5. WHEN 사용자의 SSO 세션이 만료되었으면, THE apiKeyHelper SHALL `aws sso login` 재인증이 필요하다는 안내를 출력하고 빠르게 실패한다.
 6. THE Claude_Code SHALL 정적 API key 대신 apiKeyHelper를 통해 동적 Virtual_Key만 사용한다.
 7. THE apiKeyHelper SHALL 반환된 Virtual_Key를 로컬 캐시에 저장하고, 캐시 TTL은 5분에서 15분 범위로 설정한다.
 
