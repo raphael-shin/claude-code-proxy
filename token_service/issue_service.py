@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
-from enum import Enum
 from typing import Callable
 from uuid import uuid4
 
@@ -14,11 +13,6 @@ from security.keys import generate_virtual_key, get_virtual_key_prefix, hash_vir
 
 DEFAULT_CACHE_TTL = timedelta(minutes=15)
 MAX_CACHE_TTL = timedelta(hours=1)
-
-
-class IssueDenialReason(str, Enum):
-    USER_NOT_REGISTERED = "user_not_registered"
-    ACCESS_DENIED = "access_denied"
 
 
 Clock = Callable[[], datetime]

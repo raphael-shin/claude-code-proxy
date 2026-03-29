@@ -7,6 +7,9 @@ from models.domain import ModelAliasRuleRecord, ModelRouteRecord
 from repositories.model_alias_repository import ModelAliasRepository
 from repositories.model_route_repository import ModelRouteRepository
 
+REASON_UNKNOWN_MODEL = "unknown_model"
+REASON_UNSUPPORTED_ROUTE = "unsupported_model_route"
+
 
 @dataclass(frozen=True, slots=True)
 class ResolvedModelCapabilities:
@@ -60,7 +63,7 @@ class ModelResolver:
         if alias_rule is None:
             raise ModelResolutionError(
                 requested_model=requested_model,
-                reason="unknown_model",
+                reason=REASON_UNKNOWN_MODEL,
                 message=f"Model '{requested_model}' is not allowed.",
             )
 
@@ -68,13 +71,13 @@ class ModelResolver:
         if route is None:
             raise ModelResolutionError(
                 requested_model=requested_model,
-                reason="unsupported_model_route",
+                reason=REASON_UNSUPPORTED_ROUTE,
                 message=f"Logical model '{alias_rule.logical_model}' has no supported Bedrock Converse route.",
             )
         if route.bedrock_api_route != "converse":
             raise ModelResolutionError(
                 requested_model=requested_model,
-                reason="unsupported_model_route",
+                reason=REASON_UNSUPPORTED_ROUTE,
                 message=(
                     f"Logical model '{alias_rule.logical_model}' resolves to "
                     f"unsupported Bedrock route '{route.bedrock_api_route}'."

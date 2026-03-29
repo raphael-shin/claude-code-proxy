@@ -10,6 +10,11 @@ MODEL_ALLOW_RULE = "allow_model"
 MODEL_DENY_RULE = "deny_model"
 MAX_OUTPUT_TOKENS_RULE = "max_output_tokens"
 
+DENIAL_USER_INACTIVE = "user_inactive"
+DENIAL_PROXY_ACCESS_DISABLED = "proxy_access_disabled"
+DENIAL_MODEL_DENIED = "model_denied"
+DENIAL_MODEL_NOT_ALLOWED = "model_not_allowed"
+
 
 @dataclass(frozen=True, slots=True)
 class PolicyEvaluationTrace:
@@ -36,13 +41,13 @@ class PolicyEngine:
         if not user.is_active:
             return PolicyDecision(
                 allowed=False,
-                denial_reason="user_inactive",
+                denial_reason=DENIAL_USER_INACTIVE,
                 trace=PolicyEvaluationTrace(evaluated_scopes=("user_status",)),
             )
         if not user.proxy_access_enabled:
             return PolicyDecision(
                 allowed=False,
-                denial_reason="proxy_access_disabled",
+                denial_reason=DENIAL_PROXY_ACCESS_DISABLED,
                 trace=PolicyEvaluationTrace(evaluated_scopes=("user_status",)),
             )
 
@@ -62,7 +67,7 @@ class PolicyEngine:
         if matching_deny is not None:
             return PolicyDecision(
                 allowed=False,
-                denial_reason="model_denied",
+                denial_reason=DENIAL_MODEL_DENIED,
                 effective_max_output_tokens=max_output_tokens,
                 trace=PolicyEvaluationTrace(
                     evaluated_scopes=tuple(trace_scopes),
@@ -70,17 +75,17 @@ class PolicyEngine:
                 ),
             )
 
-        model_access_rules = [
-            policy for policy in ordered_policies if policy.rule_type in {MODEL_ALLOW_RULE, MODEL_DENY_RULE}
-        ]
+        has_access_rules = any(
+            policy.rule_type in {MODEL_ALLOW_RULE, MODEL_DENY_RULE} for policy in ordered_policies
+        )
         has_matching_allow = any(
             policy.rule_type == MODEL_ALLOW_RULE and self._rule_matches_model(policy, model)
-            for policy in model_access_rules
+            for policy in ordered_policies
         )
-        if model_access_rules and not has_matching_allow:
+        if has_access_rules and not has_matching_allow:
             return PolicyDecision(
                 allowed=False,
-                denial_reason="model_not_allowed",
+                denial_reason=DENIAL_MODEL_NOT_ALLOWED,
                 effective_max_output_tokens=max_output_tokens,
                 trace=PolicyEvaluationTrace(
                     evaluated_scopes=tuple(trace_scopes),

@@ -2,9 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Callable
 
-Clock = Callable[[], datetime]
+from token_service.issue_service import Clock
 
 
 @dataclass(frozen=True, slots=True)

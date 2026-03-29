@@ -7,6 +7,7 @@ from models.domain import BudgetMetricType, BudgetPolicyRecord, ModelPricingReco
 from repositories.pricing_repository import PricingRepository
 
 MILLION = 1_000_000
+DENIAL_QUOTA_HARD_LIMIT_EXCEEDED = "quota_hard_limit_exceeded"
 SCOPE_RANK = {
     "user": 0,
     "team": 1,
@@ -40,8 +41,11 @@ class QuotaDecision:
     soft_limit_reached: bool
     hard_limit_reached: bool
     projected_usage: float
-    pricing_catalog_id: str | None = None
     usage_snapshot: UsageCostSnapshot | None = None
+
+    @property
+    def pricing_catalog_id(self) -> str | None:
+        return self.usage_snapshot.pricing_catalog_id if self.usage_snapshot else None
 
 
 class QuotaEngine:
@@ -76,7 +80,6 @@ class QuotaEngine:
                 soft_limit_reached=False,
                 hard_limit_reached=False,
                 projected_usage=projected_usage,
-                pricing_catalog_id=usage_snapshot.pricing_catalog_id if usage_snapshot else None,
                 usage_snapshot=usage_snapshot,
             )
 
@@ -93,12 +96,11 @@ class QuotaEngine:
 
         return QuotaDecision(
             allowed=not hard_limit_reached,
-            denial_reason="quota_hard_limit_exceeded" if hard_limit_reached else None,
+            denial_reason=DENIAL_QUOTA_HARD_LIMIT_EXCEEDED if hard_limit_reached else None,
             effective_policy=effective_policy,
             soft_limit_reached=soft_limit_reached,
             hard_limit_reached=hard_limit_reached,
             projected_usage=projected_usage,
-            pricing_catalog_id=usage_snapshot.pricing_catalog_id if usage_snapshot else None,
             usage_snapshot=usage_snapshot,
         )
 
