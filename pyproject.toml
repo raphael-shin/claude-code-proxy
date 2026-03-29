@@ -33,6 +33,7 @@ packages = [
     "infra.postgres",
     "models",
     "proxy",
+    "proxy.bedrock_converse",
     "repositories",
     "security",
     "token_service",
