@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from time import perf_counter
-from typing import Any, Mapping
 
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -33,8 +32,6 @@ async def create_message(request: Request) -> JSONResponse:
         authenticated = dependencies.auth_service.authenticate(
             request.headers.get("Authorization"),
             request_id=request_id,
-            headers=dict(request.headers),
-            body=body,
         )
     except Exception as error:
         if getattr(dependencies, "audit_logger", None) is not None:
@@ -116,7 +113,7 @@ async def create_message(request: Request) -> JSONResponse:
             )
 
         converse_request = build_converse_request(body, resolved_model=resolved_model)
-        if bool(body.get("stream")):
+        if converse_request.operation == "converse_stream":
             raw_stream = dependencies.bedrock_client.converse_stream(converse_request)
             decoder = ConverseStreamDecoder(model=body["model"])
             audit_logger = getattr(dependencies, "audit_logger", None)
@@ -170,8 +167,6 @@ async def count_tokens(request: Request) -> JSONResponse:
         dependencies.auth_service.authenticate(
             request.headers.get("Authorization"),
             request_id=request_id,
-            headers=dict(request.headers),
-            body=body,
         )
         resolved_model = dependencies.model_resolver.resolve(body["model"])
         converse_request = build_converse_request(body, resolved_model=resolved_model)
@@ -186,15 +181,7 @@ async def count_tokens(request: Request) -> JSONResponse:
 
 
 def _error_to_response(error: Exception, *, request_id: str) -> JSONResponse:
-    if isinstance(error, BedrockRequestBuildError):
-        return anthropic_error_response(
-            status_code=400,
-            error_type=ANTHROPIC_INVALID_REQUEST_ERROR,
-            message=error.message,
-            request_id=request_id,
-            details={"reason": error.reason},
-        )
-    if isinstance(error, ModelResolutionError):
+    if isinstance(error, (BedrockRequestBuildError, ModelResolutionError)):
         return anthropic_error_response(
             status_code=400,
             error_type=ANTHROPIC_INVALID_REQUEST_ERROR,

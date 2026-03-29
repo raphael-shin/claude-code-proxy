@@ -20,6 +20,12 @@ AUDIT_EVENT_POLICY_DENIED = "policy_denied"
 AUDIT_EVENT_QUOTA_BLOCKED = "quota_hard_limit_blocked"
 AUDIT_EVENT_RATE_LIMITED = "rate_limited"
 
+AUDIT_DECISION_ALLOWED = "allowed"
+AUDIT_DECISION_DENIED = "denied"
+
+DENIAL_REASON_AUTHENTICATION_FAILED = "authentication_failed"
+DENIAL_REASON_RATE_LIMITED = "rate_limited"
+
 
 class AuditLogger:
     def __init__(
@@ -78,7 +84,7 @@ class AuditLogger:
             event_type=AUDIT_EVENT_AUTH_SUCCESS,
             actor_user_id=authenticated.user.user_id,
             actor_user_email=authenticated.user.email,
-            decision="allowed",
+            decision=AUDIT_DECISION_ALLOWED,
             requested_model=requested_model,
             resolved_model=resolved_model,
             policy_result=self._policy_result_payload(policy_decision),
@@ -105,7 +111,7 @@ class AuditLogger:
                 event_type=event_type,
                 actor_user_id=authenticated.user.user_id if authenticated else None,
                 actor_user_email=authenticated.user.email if authenticated else None,
-                decision="denied",
+                decision=AUDIT_DECISION_DENIED,
                 requested_model=requested_model,
                 resolved_model=resolved_model,
                 denial_reason=denial_reason,
@@ -124,11 +130,12 @@ class AuditLogger:
         }
 
 
+_DENIAL_REASON_TO_EVENT_TYPE = {
+    "quota_hard_limit_exceeded": AUDIT_EVENT_QUOTA_BLOCKED,
+    DENIAL_REASON_RATE_LIMITED: AUDIT_EVENT_RATE_LIMITED,
+    DENIAL_REASON_AUTHENTICATION_FAILED: AUDIT_EVENT_AUTH_FAILURE,
+}
+
+
 def _denial_reason_to_event_type(denial_reason: str) -> str:
-    if denial_reason == "quota_hard_limit_exceeded":
-        return AUDIT_EVENT_QUOTA_BLOCKED
-    if denial_reason == "rate_limited":
-        return AUDIT_EVENT_RATE_LIMITED
-    if denial_reason == "authentication_failed":
-        return AUDIT_EVENT_AUTH_FAILURE
-    return AUDIT_EVENT_POLICY_DENIED
+    return _DENIAL_REASON_TO_EVENT_TYPE.get(denial_reason, AUDIT_EVENT_POLICY_DENIED)

@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import Any, Mapping
-
 from models.context import AuthenticatedRequestContext
 from models.domain import VirtualKeyStatus
 from models.errors import ServiceError, authentication_failed_error
@@ -33,8 +31,6 @@ class ProxyAuthService:
         authorization_header: str | None,
         *,
         request_id: str,
-        headers: Mapping[str, str] | None = None,
-        body: Mapping[str, Any] | None = None,
     ) -> AuthenticatedRequestContext:
         virtual_key = self._extract_virtual_key(authorization_header, request_id=request_id)
         key_hash = hash_virtual_key(virtual_key)
@@ -54,8 +50,6 @@ class ProxyAuthService:
             virtual_key_id=record.id,
             key_hash=record.key_hash,
             key_prefix=record.key_prefix,
-            untrusted_headers=headers,
-            untrusted_body=body,
         )
 
     def _extract_virtual_key(self, authorization_header: str | None, *, request_id: str) -> str:

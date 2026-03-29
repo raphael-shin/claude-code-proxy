@@ -2,12 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
-SUPPORTED_STOP_REASONS = {
-    "end_turn",
-    "max_tokens",
-    "stop_sequence",
-    "tool_use",
-}
+from proxy.bedrock_converse import SUPPORTED_STOP_REASONS
 
 
 def parse_converse_response(

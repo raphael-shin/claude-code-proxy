@@ -80,18 +80,7 @@ class PsycopgVirtualKeyStore:
         ).fetchone()
         if row is None:
             return None
-        return VirtualKeyRecord(
-            id=str(row["id"]),
-            user_id=row["user_id"],
-            key_hash=row["key_hash"],
-            encrypted_key_blob=bytes(row["encrypted_key_blob"]).decode("utf-8"),
-            key_prefix=row["key_prefix"],
-            status=VirtualKeyStatus(row["status"]),
-            created_at=row["created_at"],
-            expires_at=row["expires_at"],
-            revoked_at=row["revoked_at"],
-            last_used_at=row["last_used_at"],
-        )
+        return self._row_to_record(row)
 
     def list_virtual_keys_for_user(self, user_id: str) -> Sequence[VirtualKeyRecord]:
         rows = self._connection.execute(
@@ -104,21 +93,22 @@ class PsycopgVirtualKeyStore:
             """,
             {"user_id": user_id},
         ).fetchall()
-        return [
-            VirtualKeyRecord(
-                id=str(row["id"]),
-                user_id=row["user_id"],
-                key_hash=row["key_hash"],
-                encrypted_key_blob=bytes(row["encrypted_key_blob"]).decode("utf-8"),
-                key_prefix=row["key_prefix"],
-                status=VirtualKeyStatus(row["status"]),
-                created_at=row["created_at"],
-                expires_at=row["expires_at"],
-                revoked_at=row["revoked_at"],
-                last_used_at=row["last_used_at"],
-            )
-            for row in rows
-        ]
+        return [self._row_to_record(row) for row in rows]
+
+    @staticmethod
+    def _row_to_record(row: Any) -> VirtualKeyRecord:
+        return VirtualKeyRecord(
+            id=str(row["id"]),
+            user_id=row["user_id"],
+            key_hash=row["key_hash"],
+            encrypted_key_blob=bytes(row["encrypted_key_blob"]).decode("utf-8"),
+            key_prefix=row["key_prefix"],
+            status=VirtualKeyStatus(row["status"]),
+            created_at=row["created_at"],
+            expires_at=row["expires_at"],
+            revoked_at=row["revoked_at"],
+            last_used_at=row["last_used_at"],
+        )
 
     def save_virtual_key(self, record: VirtualKeyRecord) -> None:
         self._connection.execute(

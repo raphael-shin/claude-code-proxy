@@ -4,12 +4,8 @@ import json
 from dataclasses import dataclass, field
 from typing import Any, Iterable, Iterator
 
-SUPPORTED_STOP_REASONS = {
-    "end_turn",
-    "max_tokens",
-    "stop_sequence",
-    "tool_use",
-}
+from proxy.bedrock_converse import SUPPORTED_STOP_REASONS
+from proxy.bedrock_converse.response_parser import _normalize_usage
 
 
 @dataclass(slots=True)
@@ -27,15 +23,7 @@ class StreamingUsageCollector:
 
     def update_from_metadata(self, metadata_event: dict[str, Any]) -> None:
         metadata = metadata_event.get("metadata", metadata_event)
-        usage = metadata.get("usage", {})
-        self._usage = {
-            "input_tokens": int(usage.get("inputTokens", 0) or 0),
-            "output_tokens": int(usage.get("outputTokens", 0) or 0),
-            "total_tokens": int(usage.get("totalTokens", 0) or 0),
-            "cache_write_input_tokens": int(usage.get("cacheWriteInputTokens", 0) or 0),
-            "cache_read_input_tokens": int(usage.get("cacheReadInputTokens", 0) or 0),
-            "cache_details": usage.get("cacheDetails"),
-        }
+        self._usage = _normalize_usage(metadata.get("usage"))
 
     @property
     def usage(self) -> dict[str, Any]:

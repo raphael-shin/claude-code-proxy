@@ -42,16 +42,6 @@ def test_auth_restores_trusted_context_from_virtual_key_only() -> None:
     authenticated = auth_service.authenticate(
         f"Bearer {virtual_key}",
         request_id="req-auth-2",
-        headers={
-            "X-User-Id": "forged-user",
-            "X-User-Email": "forged@example.com",
-        },
-        body={
-            "user_id": "body-user",
-            "email": "body@example.com",
-            "groups": ["forged-group"],
-            "department": "finance",
-        },
     )
 
     assert authenticated.request_id == "req-auth-2"

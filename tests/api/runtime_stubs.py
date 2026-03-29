@@ -43,14 +43,12 @@ class AuthServiceStub:
         self.call_log = call_log if call_log is not None else []
         self.calls: list[dict[str, Any]] = []
 
-    def authenticate(self, authorization_header, *, request_id, headers=None, body=None):
+    def authenticate(self, authorization_header, *, request_id):
         self.call_log.append("auth")
         self.calls.append(
             {
                 "authorization_header": authorization_header,
                 "request_id": request_id,
-                "headers": headers,
-                "body": body,
             }
         )
         if self.error is not None:
