@@ -8,6 +8,7 @@ from typing import Any
 class ErrorCode(str, Enum):
     USER_NOT_REGISTERED = "user_not_registered"
     ACCESS_DENIED = "access_denied"
+    AUTHENTICATION_FAILED = "authentication_failed"
     INVALID_IDENTITY = "invalid_identity"
     INTERNAL_ERROR = "internal_error"
 
@@ -83,3 +84,17 @@ def user_not_registered_error(
         details=details,
     )
 
+
+def authentication_failed_error(
+    request_id: str,
+    *,
+    details: dict[str, Any] | None = None,
+    message: str = "Authentication failed.",
+) -> ServiceError:
+    return ServiceError(
+        code=ErrorCode.AUTHENTICATION_FAILED,
+        message=message,
+        status_code=401,
+        request_id=request_id,
+        details=details,
+    )

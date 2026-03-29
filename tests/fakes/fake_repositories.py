@@ -39,10 +39,18 @@ class InMemoryVirtualKeyLedgerRepository:
     def __init__(self) -> None:
         self._records: dict[str, VirtualKeyRecord] = {}
         self.get_active_key_calls: list[str] = []
+        self.get_key_by_hash_calls: list[str] = []
         self.saved_records: list[VirtualKeyRecord] = []
 
     def seed(self, record: VirtualKeyRecord) -> None:
         self._records[record.id] = record
+
+    def get_key_by_hash(self, key_hash: str) -> VirtualKeyRecord | None:
+        self.get_key_by_hash_calls.append(key_hash)
+        for record in self._records.values():
+            if record.key_hash == key_hash:
+                return record
+        return None
 
     def get_active_key_for_user(self, user_id: str) -> VirtualKeyRecord | None:
         self.get_active_key_calls.append(user_id)

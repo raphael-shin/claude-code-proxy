@@ -33,7 +33,13 @@ class FakePostgresConnection:
         self.operations.append(("list_virtual_keys_for_user", user_id))
         return [record for record in self.virtual_keys.values() if record.user_id == user_id]
 
+    def get_virtual_key_by_hash(self, key_hash: str) -> VirtualKeyRecord | None:
+        self.operations.append(("get_virtual_key_by_hash", key_hash))
+        for record in self.virtual_keys.values():
+            if record.key_hash == key_hash:
+                return record
+        return None
+
     def save_virtual_key(self, record: VirtualKeyRecord) -> None:
         self.operations.append(("save_virtual_key", record.id))
         self.virtual_keys[record.id] = record
-

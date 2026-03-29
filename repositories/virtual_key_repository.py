@@ -14,6 +14,11 @@ class VirtualKeyLedgerRepository(Protocol):
 
 
 @runtime_checkable
+class VirtualKeyAuthRepository(Protocol):
+    def get_key_by_hash(self, key_hash: str) -> VirtualKeyRecord | None: ...
+
+
+@runtime_checkable
 class VirtualKeyCacheRepository(Protocol):
     def get_active_key(self, user_id: str, now: datetime) -> VirtualKeyCacheEntry | None: ...
 
@@ -24,6 +29,8 @@ class VirtualKeyCacheRepository(Protocol):
 
 class PostgresVirtualKeyStore(Protocol):
     def list_virtual_keys_for_user(self, user_id: str) -> Sequence[VirtualKeyRecord]: ...
+
+    def get_virtual_key_by_hash(self, key_hash: str) -> VirtualKeyRecord | None: ...
 
     def save_virtual_key(self, record: VirtualKeyRecord) -> None: ...
 
@@ -39,6 +46,9 @@ class DynamoDbTable(Protocol):
 class PostgresVirtualKeyRepository:
     def __init__(self, store: PostgresVirtualKeyStore) -> None:
         self._store = store
+
+    def get_key_by_hash(self, key_hash: str) -> VirtualKeyRecord | None:
+        return self._store.get_virtual_key_by_hash(key_hash)
 
     def get_active_key_for_user(self, user_id: str) -> VirtualKeyRecord | None:
         active_keys = [
@@ -57,6 +67,31 @@ class PostgresVirtualKeyRepository:
 class PsycopgVirtualKeyStore:
     def __init__(self, connection: Any) -> None:
         self._connection = connection
+
+    def get_virtual_key_by_hash(self, key_hash: str) -> VirtualKeyRecord | None:
+        row = self._connection.execute(
+            """
+            SELECT id, user_id, key_hash, encrypted_key_blob, key_prefix, status,
+                   created_at, expires_at, revoked_at, last_used_at
+            FROM virtual_keys
+            WHERE key_hash = %(key_hash)s
+            """,
+            {"key_hash": key_hash},
+        ).fetchone()
+        if row is None:
+            return None
+        return VirtualKeyRecord(
+            id=str(row["id"]),
+            user_id=row["user_id"],
+            key_hash=row["key_hash"],
+            encrypted_key_blob=bytes(row["encrypted_key_blob"]).decode("utf-8"),
+            key_prefix=row["key_prefix"],
+            status=VirtualKeyStatus(row["status"]),
+            created_at=row["created_at"],
+            expires_at=row["expires_at"],
+            revoked_at=row["revoked_at"],
+            last_used_at=row["last_used_at"],
+        )
 
     def list_virtual_keys_for_user(self, user_id: str) -> Sequence[VirtualKeyRecord]:
         rows = self._connection.execute(

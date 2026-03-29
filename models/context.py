@@ -19,3 +19,19 @@ class RequestContext:
     request_id: str
     user: UserContext | None = None
 
+
+@dataclass(frozen=True, slots=True)
+class AuthenticatedRequestContext:
+    request: RequestContext
+    virtual_key_id: str
+    key_hash: str
+    key_prefix: str
+
+    @property
+    def request_id(self) -> str:
+        return self.request.request_id
+
+    @property
+    def user(self) -> UserContext:
+        assert self.request.user is not None
+        return self.request.user

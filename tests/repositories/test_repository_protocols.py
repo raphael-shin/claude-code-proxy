@@ -7,7 +7,7 @@ from repositories.policy_repository import PolicyRepository
 from repositories.pricing_repository import PricingRepository
 from repositories.usage_repository import UsageRepository
 from repositories.user_repository import PostgresUserRepository, UserRepository
-from repositories.virtual_key_repository import DynamoDbVirtualKeyCache, PostgresVirtualKeyRepository, VirtualKeyCacheRepository, VirtualKeyLedgerRepository
+from repositories.virtual_key_repository import DynamoDbVirtualKeyCache, PostgresVirtualKeyRepository, VirtualKeyAuthRepository, VirtualKeyCacheRepository, VirtualKeyLedgerRepository
 from tests.fakes import FakeDynamoDbTable, FakePostgresConnection, InMemoryPricingRepository, InMemoryUserRepository, InMemoryVirtualKeyCacheRepository, InMemoryVirtualKeyLedgerRepository
 
 
@@ -58,6 +58,8 @@ def test_repository_protocols_are_runtime_checkable() -> None:
     assert isinstance(PostgresUserRepository(postgres), UserRepository)
     assert isinstance(InMemoryVirtualKeyLedgerRepository(), VirtualKeyLedgerRepository)
     assert isinstance(PostgresVirtualKeyRepository(postgres), VirtualKeyLedgerRepository)
+    assert isinstance(InMemoryVirtualKeyLedgerRepository(), VirtualKeyAuthRepository)
+    assert isinstance(PostgresVirtualKeyRepository(postgres), VirtualKeyAuthRepository)
     assert isinstance(InMemoryVirtualKeyCacheRepository(), VirtualKeyCacheRepository)
     assert isinstance(DynamoDbVirtualKeyCache(dynamodb), VirtualKeyCacheRepository)
     assert isinstance(StubAdminIdentityRepository(), AdminIdentityRepository)
