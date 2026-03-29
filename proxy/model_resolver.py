@@ -15,6 +15,15 @@ class ResolvedModelCapabilities:
     supports_prompt_cache_ttl: bool
     supports_disable_parallel_tool_use: bool
 
+    @classmethod
+    def from_route(cls, route: ModelRouteRecord) -> ResolvedModelCapabilities:
+        return cls(
+            supports_native_structured_output=route.supports_native_structured_output,
+            supports_reasoning=route.supports_reasoning,
+            supports_prompt_cache_ttl=route.supports_prompt_cache_ttl,
+            supports_disable_parallel_tool_use=route.supports_disable_parallel_tool_use,
+        )
+
 
 @dataclass(frozen=True, slots=True)
 class ResolvedModel:
@@ -80,12 +89,7 @@ class ModelResolver:
             bedrock_model_id=route.bedrock_model_id,
             inference_profile_id=route.inference_profile_id,
             aws_region_name=None,
-            capabilities=ResolvedModelCapabilities(
-                supports_native_structured_output=route.supports_native_structured_output,
-                supports_reasoning=route.supports_reasoning,
-                supports_prompt_cache_ttl=route.supports_prompt_cache_ttl,
-                supports_disable_parallel_tool_use=route.supports_disable_parallel_tool_use,
-            ),
+            capabilities=ResolvedModelCapabilities.from_route(route),
         )
 
     def _find_alias_rule(self, requested_model: str) -> ModelAliasRuleRecord | None:
