@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from models.domain import UserRecord
+
 
 @dataclass(frozen=True, slots=True)
 class UserContext:
@@ -23,6 +25,7 @@ class RequestContext:
 @dataclass(frozen=True, slots=True)
 class AuthenticatedRequestContext:
     request: RequestContext
+    user_record: UserRecord
     virtual_key_id: str
     key_hash: str
     key_prefix: str

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import timedelta
-from typing import Callable
+from typing import Any, Callable
 
 from repositories.user_repository import UserRepository
 from repositories.virtual_key_repository import (
@@ -21,6 +21,13 @@ from token_service.issue_service import DEFAULT_CACHE_TTL, Clock, KeyGenerator, 
 @dataclass(slots=True)
 class AppDependencies:
     token_service: TokenServiceHandlerDependencies | None = None
+    auth_service: Any | None = None
+    model_resolver: Any | None = None
+    policy_engine: Any | None = None
+    quota_engine: Any | None = None
+    rate_limiter: Any | None = None
+    bedrock_client: Any | None = None
+    request_id_generator: Callable[[], str] = default_request_id_generator
     readiness_checks: tuple[Callable[[], bool], ...] = field(default_factory=tuple)
 
 
@@ -49,4 +56,3 @@ def build_token_service_dependencies(
         issue_service=issue_service,
         request_id_generator=request_id_generator,
     )
-

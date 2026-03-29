@@ -28,6 +28,7 @@ def restore_trusted_request_context(
                 department=user.department,
             ),
         ),
+        user_record=user,
         virtual_key_id=virtual_key_id,
         key_hash=key_hash,
         key_prefix=key_prefix,
