@@ -12,14 +12,14 @@ class NetworkConstruct(Construct):
         self.config = config
         self.public_subnet_selection = ec2.SubnetSelection(subnet_type=ec2.SubnetType.PUBLIC)
         self.private_subnet_selection = ec2.SubnetSelection(
-            subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS
+            subnet_type=ec2.SubnetType.PRIVATE_ISOLATED
         )
         self.vpc = ec2.Vpc(
             self,
             "Vpc",
             ip_addresses=ec2.IpAddresses.cidr(config.vpc_cidr),
             max_azs=config.max_azs,
-            nat_gateways=config.nat_gateways,
+            nat_gateways=0,
             subnet_configuration=[
                 ec2.SubnetConfiguration(
                     name="Public",
@@ -28,46 +28,32 @@ class NetworkConstruct(Construct):
                 ),
                 ec2.SubnetConfiguration(
                     name="Private",
-                    subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS,
+                    subnet_type=ec2.SubnetType.PRIVATE_ISOLATED,
                     cidr_mask=24,
                 ),
             ],
         )
+
+        # --- Security Groups ---
+
         self.alb_security_group = ec2.SecurityGroup(
-            self,
-            "AlbSecurityGroup",
-            vpc=self.vpc,
-            allow_all_outbound=True,
+            self, "AlbSecurityGroup", vpc=self.vpc, allow_all_outbound=True,
         )
         self.runtime_service_security_group = ec2.SecurityGroup(
-            self,
-            "RuntimeServiceSecurityGroup",
-            vpc=self.vpc,
-            allow_all_outbound=True,
+            self, "RuntimeServiceSecurityGroup", vpc=self.vpc, allow_all_outbound=True,
         )
         self.token_service_security_group = ec2.SecurityGroup(
-            self,
-            "TokenServiceSecurityGroup",
-            vpc=self.vpc,
-            allow_all_outbound=True,
+            self, "TokenServiceSecurityGroup", vpc=self.vpc, allow_all_outbound=True,
         )
         self.db_proxy_security_group = ec2.SecurityGroup(
-            self,
-            "DatabaseProxySecurityGroup",
-            vpc=self.vpc,
-            allow_all_outbound=False,
+            self, "DatabaseProxySecurityGroup", vpc=self.vpc, allow_all_outbound=False,
         )
         self.database_security_group = ec2.SecurityGroup(
-            self,
-            "DatabaseSecurityGroup",
-            vpc=self.vpc,
-            allow_all_outbound=False,
+            self, "DatabaseSecurityGroup", vpc=self.vpc, allow_all_outbound=False,
         )
 
         self.alb_security_group.add_ingress_rule(
-            ec2.Peer.any_ipv4(),
-            ec2.Port.tcp(443),
-            "allow public https ingress",
+            ec2.Peer.any_ipv4(), ec2.Port.tcp(443), "allow public https ingress",
         )
         self.runtime_service_security_group.add_ingress_rule(
             self.alb_security_group,
@@ -75,22 +61,45 @@ class NetworkConstruct(Construct):
             "allow alb to reach runtime service",
         )
         self.db_proxy_security_group.add_ingress_rule(
-            self.runtime_service_security_group,
-            ec2.Port.tcp(5432),
+            self.runtime_service_security_group, ec2.Port.tcp(5432),
             "allow runtime service to reach db proxy",
         )
         self.db_proxy_security_group.add_ingress_rule(
-            self.token_service_security_group,
-            ec2.Port.tcp(5432),
+            self.token_service_security_group, ec2.Port.tcp(5432),
             "allow token service lambda to reach db proxy",
         )
         self.db_proxy_security_group.add_egress_rule(
-            self.database_security_group,
-            ec2.Port.tcp(5432),
+            self.database_security_group, ec2.Port.tcp(5432),
             "allow db proxy to reach aurora",
         )
         self.database_security_group.add_ingress_rule(
-            self.db_proxy_security_group,
-            ec2.Port.tcp(5432),
+            self.db_proxy_security_group, ec2.Port.tcp(5432),
             "allow db proxy to reach aurora",
         )
+
+        # --- VPC Endpoints (no NAT Gateway needed) ---
+
+        self.vpc.add_gateway_endpoint(
+            "DynamoDbEndpoint",
+            service=ec2.GatewayVpcEndpointAwsService.DYNAMODB,
+            subnets=[self.private_subnet_selection],
+        )
+        self.vpc.add_gateway_endpoint(
+            "S3Endpoint",
+            service=ec2.GatewayVpcEndpointAwsService.S3,
+            subnets=[self.private_subnet_selection],
+        )
+        for endpoint_id, service in [
+            ("EcrApiEndpoint", ec2.InterfaceVpcEndpointAwsService.ECR),
+            ("EcrDockerEndpoint", ec2.InterfaceVpcEndpointAwsService.ECR_DOCKER),
+            ("CloudWatchLogsEndpoint", ec2.InterfaceVpcEndpointAwsService.CLOUDWATCH_LOGS),
+            ("StsEndpoint", ec2.InterfaceVpcEndpointAwsService.STS),
+            ("SecretsManagerEndpoint", ec2.InterfaceVpcEndpointAwsService.SECRETS_MANAGER),
+            ("BedrockRuntimeEndpoint", ec2.InterfaceVpcEndpointAwsService.BEDROCK_RUNTIME),
+        ]:
+            self.vpc.add_interface_endpoint(
+                endpoint_id,
+                service=service,
+                subnets=self.private_subnet_selection,
+                private_dns_enabled=True,
+            )

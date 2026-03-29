@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from aws_cdk import CfnOutput
 from aws_cdk import aws_certificatemanager as acm
+from aws_cdk import aws_ecr as ecr
 from aws_cdk import aws_ecs as ecs
 from aws_cdk import aws_elasticloadbalancingv2 as elbv2
 from aws_cdk import aws_iam as iam
@@ -45,9 +46,19 @@ class ProxyRuntimeConstruct(Construct):
             cpu=config.cpu,
             memory_limit_mib=config.memory_mib,
         )
+        self.runtime_repository = ecr.Repository.from_repository_name(
+            self,
+            "RuntimeImageRepository",
+            config.image_repository_name,
+        )
+        execution_role = self.task_definition.obtain_execution_role()
+        self.runtime_repository.grant_pull(execution_role)
         self.task_definition.add_container(
             "ProxyContainer",
-            image=ecs.ContainerImage.from_registry("public.ecr.aws/docker/library/python:3.12-slim"),
+            image=ecs.ContainerImage.from_ecr_repository(
+                self.runtime_repository,
+                tag=config.image_tag,
+            ),
             command=["python", "-m", "http.server", str(config.container_port)],
             port_mappings=[
                 ecs.PortMapping(
@@ -68,8 +79,8 @@ class ProxyRuntimeConstruct(Construct):
         self.task_definition.task_role.add_to_principal_policy(
             iam.PolicyStatement(
                 actions=[
-                    "bedrock:InvokeModel",
-                    "bedrock:InvokeModelWithResponseStream",
+                    "bedrock:Converse",
+                    "bedrock:ConverseStream",
                 ],
                 resources=["*"],
             )

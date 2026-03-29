@@ -42,6 +42,10 @@ def test_proxy_runtime_construct_declares_cluster_service_alb_and_health_checks(
             }
         ),
     )
+    task_definitions = template.find_resources("AWS::ECS::TaskDefinition")
+    container_definitions = next(iter(task_definitions.values()))["Properties"]["ContainerDefinitions"]
+    image_reference = container_definitions[0]["Image"]
+    assert image_reference["Fn::Join"][1][-1] == "/claude-code-proxy/runtime:latest"
     template.has_resource_properties(
         "AWS::ElasticLoadBalancingV2::LoadBalancer",
         Match.object_like(
@@ -88,4 +92,6 @@ def _runtime_config() -> ProxyRuntimeConfig:
         hosted_zone_name="dev.example.internal",
         certificate_arn="arn:aws:acm:ap-northeast-2:111111111111:certificate/dev-placeholder",
         waf_arn="arn:aws:wafv2:ap-northeast-2:111111111111:regional/webacl/dev-placeholder/00000000-0000-0000-0000-000000000000",
+        image_repository_name="claude-code-proxy/runtime",
+        image_tag="latest",
     )

@@ -37,7 +37,6 @@ def make_network_config() -> NetworkConfig:
     return NetworkConfig(
         vpc_cidr="10.42.0.0/16",
         max_azs=2,
-        nat_gateways=1,
     )
 
 

@@ -4,56 +4,67 @@ import pytest
 from aws_cdk import App
 
 from infra.app import build_cdk_app
-from infra.config import ClaudeCodeProxyStackProps, default_environment_name, load_profile
+from infra.config import ClaudeCodeProxyStackProps, build_stack_props, default_environment_name
 
 
-def test_load_profile_returns_typed_stack_props() -> None:
-    props = load_profile("staging")
+def test_build_stack_props_returns_typed_props(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("CDK_DEFAULT_ACCOUNT", "111111111111")
+    monkeypatch.setenv("CDK_DEFAULT_REGION", "ap-northeast-2")
+
+    props = build_stack_props("my-team")
 
     assert isinstance(props, ClaudeCodeProxyStackProps)
-    assert props.naming.environment == "staging"
-    assert props.token_service.stage_name == "staging"
-    assert props.admin_api.stage_name == "admin-staging"
-    assert props.network.vpc_cidr == "10.52.0.0/16"
+    assert props.naming.environment == "my-team"
+    assert props.token_service.stage_name == "my-team"
+    assert props.admin_api.stage_name == "admin-my-team"
+    assert props.deployment_environment.account == "111111111111"
+    assert props.deployment_environment.region == "ap-northeast-2"
+    assert props.proxy_runtime.image_repository_name == "claude-code-proxy/runtime"
+    assert props.proxy_runtime.image_tag == "latest"
     assert props.proxy_runtime.idle_timeout_seconds == 300
 
 
-def test_app_builds_stack_from_typed_profile_props() -> None:
-    _, stack = build_cdk_app("prod")
-
-    assert stack.props.naming.stack_name == "ClaudeCodeProxy-prod"
-    assert stack.region == "ap-northeast-2"
-    assert stack.props.deployment_environment.account == "333333333333"
-    assert stack.props.proxy_runtime.domain_name == "proxy.example.com"
-
-
-def test_unknown_profile_uses_default_template(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_build_stack_props_reads_account_and_region_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("CDK_DEFAULT_ACCOUNT", "444444444444")
     monkeypatch.setenv("CDK_DEFAULT_REGION", "us-west-2")
 
-    props = load_profile("my-team")
+    props = build_stack_props("sandbox")
 
-    assert props.naming.environment == "my-team"
-    assert props.naming.stack_name == "ClaudeCodeProxy-my-team"
+    assert props.naming.stack_name == "ClaudeCodeProxy-sandbox"
     assert props.deployment_environment.account == "444444444444"
     assert props.deployment_environment.region == "us-west-2"
-    assert props.token_service.stage_name == "my-team"
-    assert props.admin_api.stage_name == "admin-my-team"
-    assert props.proxy_runtime.domain_name == "proxy.my-team.example.internal"
+    assert props.proxy_runtime.domain_name == "proxy.sandbox.example.internal"
 
 
-def test_default_environment_name_prefers_aws_profile(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("CLAUDE_CODE_PROXY_ENV", raising=False)
-    monkeypatch.setenv("AWS_PROFILE", "personal_sandbox")
+def test_build_stack_props_reads_runtime_image_settings_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("CLAUDE_CODE_PROXY_RUNTIME_IMAGE_REPOSITORY_NAME", "team/proxy-runtime")
+    monkeypatch.setenv("CLAUDE_CODE_PROXY_RUNTIME_IMAGE_TAG", "2026-03-29")
 
-    assert default_environment_name() == "personal-sandbox"
+    props = build_stack_props("sandbox")
+
+    assert props.proxy_runtime.image_repository_name == "team/proxy-runtime"
+    assert props.proxy_runtime.image_tag == "2026-03-29"
 
 
-def test_explicit_environment_overrides_aws_profile(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_build_stack_props_normalizes_environment_name() -> None:
+    props = build_stack_props("My_Sandbox")
+
+    assert props.naming.environment == "my-sandbox"
+    assert props.token_service.stage_name == "my-sandbox"
+
+
+def test_default_environment_name_prefers_claude_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("CLAUDE_CODE_PROXY_ENV", "manual-env")
     monkeypatch.setenv("AWS_PROFILE", "personal_sandbox")
 
     assert default_environment_name() == "manual-env"
+
+
+def test_default_environment_name_falls_back_to_aws_profile(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("CLAUDE_CODE_PROXY_ENV", raising=False)
+    monkeypatch.setenv("AWS_PROFILE", "personal_sandbox")
+
+    assert default_environment_name() == "personal-sandbox"
 
 
 def test_cdk_context_environment_name_is_supported() -> None:

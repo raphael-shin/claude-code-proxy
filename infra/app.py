@@ -4,7 +4,7 @@ import argparse
 
 from aws_cdk import App
 
-from infra.config import ClaudeCodeProxyStackProps, default_environment_name, load_profile
+from infra.config import ClaudeCodeProxyStackProps, build_stack_props, default_environment_name
 from infra.stack import ClaudeCodeProxyStack
 
 ENV_NAME_CONTEXT_KEY = "envName"
@@ -16,7 +16,7 @@ def build_cdk_app(
     app: App | None = None,
 ) -> tuple[App, ClaudeCodeProxyStack]:
     resolved_app = app or App()
-    props = load_profile(
+    props = build_stack_props(
         _resolve_environment_name(
             resolved_app,
             explicit_name=environment_name,
@@ -38,14 +38,9 @@ def main(argv: list[str] | None = None) -> App:
     parser = argparse.ArgumentParser(description="Claude Code Proxy CDK app")
     parser.add_argument(
         "--env-name",
-        "--profile",
         dest="environment_name",
         default=None,
-        help=(
-            "logical deployment environment name; defaults to CDK context "
-            f"'{ENV_NAME_CONTEXT_KEY}', then CLAUDE_CODE_PROXY_ENV, then "
-            "AWS_PROFILE, then dev"
-        ),
+        help="stack name suffix (default: envName context / CLAUDE_CODE_PROXY_ENV / AWS_PROFILE / dev)",
     )
     args = parser.parse_args(argv)
 

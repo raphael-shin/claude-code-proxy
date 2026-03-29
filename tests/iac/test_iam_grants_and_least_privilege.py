@@ -20,8 +20,8 @@ def test_runtime_and_token_service_roles_use_scoped_grants_without_admin_policie
 
     assert any("dynamodb:GetItem" in action_list for action_list in actions)
     assert any("secretsmanager:GetSecretValue" in action_list for action_list in actions)
-    assert any("bedrock:InvokeModel" in action_list for action_list in actions)
-    assert any("bedrock:InvokeModelWithResponseStream" in action_list for action_list in actions)
+    assert any("bedrock:Converse" in action_list for action_list in actions)
+    assert any("bedrock:ConverseStream" in action_list for action_list in actions)
     assert all("*" not in action_list for action_list in actions)
     assert all("bedrock:*" not in action_list for action_list in actions)
 
