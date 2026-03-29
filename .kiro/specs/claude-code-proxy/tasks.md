@@ -120,8 +120,8 @@
   - [x] 17.6 Test: Internal cache invalidation 호출 후 다음 Token Service lookup은 PostgreSQL을 다시 조회한다. Code: `api/internal_ops.py`와 invalidation endpoint를 추가한다. Verify: `pytest tests/admin/test_internal_cache_invalidation.py -q`. Refactor after green: internal auth boundary를 명시화한다. Covers: R9.10, R12.3.
   - [x] 17.7 Test: 사용량/감사 조회 API는 사용자별, 팀별, 모델별 usage와 audit event를 필터링해 반환한다. Code: `api/admin_usage.py`와 query service를 추가한다. Verify: `pytest tests/admin/test_usage_queries.py -q`. Refactor after green: pagination/filter object를 도입한다. Covers: R9.14, R9.15.
 
-- [ ] 18. apiKeyHelper 스크립트 구현
-  - [ ] 18.1 Test: `apiKeyHelper`는 유효한 로컬 cache가 있으면 100ms 이내에 key를 반환하고, cache miss나 손상 시 Token Service를 다시 호출하며, 연결 실패 시 빠르게 실패한다. Code: `scripts/apiKeyHelper`와 cache file helper를 추가한다. Verify: `pytest tests/scripts/test_api_key_helper.py -q`. Refactor after green: CLI command runner를 분리한다. Covers: R1.1-R1.7, R11.1, R14.1, R16.1.
+- [x] 18. apiKeyHelper 스크립트 구현
+  - [x] 18.1 Test: `apiKeyHelper`는 유효한 로컬 cache가 있으면 100ms 이내에 key를 반환하고, cache miss나 손상 시 Token Service를 다시 호출하며, 연결 실패 시 빠르게 실패한다. Code: `scripts/apiKeyHelper`와 cache file helper를 추가한다. Verify: `pytest tests/scripts/test_api_key_helper.py -q`. Refactor after green: CLI command runner를 분리한다. Covers: R1.1-R1.7, R11.1, R14.1, R16.1.
 
 - [ ] 19. 최소 로깅 및 에러 처리 통합
   - [ ] 19.1 Test: 모든 failure path는 `request_id`를 포함한 구조화 로그와 최소 runtime metrics를 남긴다. Code: logging middleware와 basic metrics hooks를 추가한다. Verify: `pytest tests/observability/test_request_id_and_metrics.py -q`. Refactor after green: metric names/constants를 모듈화한다. Covers: R13.1-R13.5, R14.7.

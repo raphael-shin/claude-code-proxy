@@ -39,6 +39,7 @@ packages = [
     "proxy",
     "proxy.bedrock_converse",
     "repositories",
+    "scripts",
     "security",
     "token_service",
 ]
