@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
-from proxy.bedrock_converse import SUPPORTED_STOP_REASONS
+from proxy.bedrock_converse import DEFAULT_MESSAGE_ID, SUPPORTED_STOP_REASONS
 
 
 def parse_converse_response(
@@ -48,14 +48,14 @@ def parse_converse_response(
         provider_metadata["reasoning"] = provider_reasoning
 
     parsed = {
-        "id": response.get("requestMetadata", {}).get("requestId", "msg_bedrock"),
+        "id": response.get("requestMetadata", {}).get("requestId", DEFAULT_MESSAGE_ID),
         "type": "message",
         "role": output_message.get("role", "assistant"),
         "model": model,
         "content": content_blocks,
         "stop_reason": stop_reason,
         "stop_sequence": response.get("stopSequence"),
-        "usage": _normalize_usage(response.get("usage")),
+        "usage": normalize_usage(response.get("usage")),
     }
     if thinking_blocks:
         parsed["thinking_blocks"] = thinking_blocks
@@ -72,7 +72,7 @@ def _map_stop_reason(raw_stop_reason: str | None) -> tuple[str | None, dict[str,
     return "end_turn", {"raw_stop_reason": raw_stop_reason}
 
 
-def _normalize_usage(usage: Mapping[str, Any] | None) -> dict[str, Any]:
+def normalize_usage(usage: Mapping[str, Any] | None) -> dict[str, Any]:
     usage = usage or {}
     return {
         "input_tokens": int(usage.get("inputTokens", 0) or 0),

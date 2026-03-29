@@ -4,8 +4,8 @@ import json
 from dataclasses import dataclass, field
 from typing import Any, Iterable, Iterator
 
-from proxy.bedrock_converse import SUPPORTED_STOP_REASONS
-from proxy.bedrock_converse.response_parser import _normalize_usage
+from proxy.bedrock_converse import DEFAULT_STREAM_MESSAGE_ID, SUPPORTED_STOP_REASONS
+from proxy.bedrock_converse.response_parser import normalize_usage
 
 
 @dataclass(slots=True)
@@ -23,7 +23,7 @@ class StreamingUsageCollector:
 
     def update_from_metadata(self, metadata_event: dict[str, Any]) -> None:
         metadata = metadata_event.get("metadata", metadata_event)
-        self._usage = _normalize_usage(metadata.get("usage"))
+        self._usage = normalize_usage(metadata.get("usage"))
 
     @property
     def usage(self) -> dict[str, Any]:
@@ -33,7 +33,7 @@ class StreamingUsageCollector:
 @dataclass(slots=True)
 class ConverseStreamDecoder:
     model: str | None = None
-    message_id: str = "msg_bedrock_stream"
+    message_id: str = DEFAULT_STREAM_MESSAGE_ID
     usage_collector: StreamingUsageCollector = field(default_factory=StreamingUsageCollector)
     thinking_blocks: list[dict[str, Any]] = field(default_factory=list)
     provider_reasoning: list[dict[str, Any]] = field(default_factory=list)

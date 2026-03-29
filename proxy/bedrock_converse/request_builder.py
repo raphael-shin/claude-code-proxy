@@ -305,7 +305,6 @@ def _build_tool_config(
         ]
     mapped_tool_choice = _map_tool_choice(
         tool_choice=tool_choice,
-        supports_disable_parallel_tool_use=resolved_model.capabilities.supports_disable_parallel_tool_use,
         reasoning_enabled=reasoning_enabled,
     )
     if mapped_tool_choice is not None:
@@ -316,10 +315,8 @@ def _build_tool_config(
 def _map_tool_choice(
     *,
     tool_choice: Any,
-    supports_disable_parallel_tool_use: bool,
     reasoning_enabled: bool,
 ) -> dict[str, Any] | None:
-    del supports_disable_parallel_tool_use
     if tool_choice is None:
         return None
     if reasoning_enabled:

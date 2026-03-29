@@ -37,8 +37,8 @@ def test_fake_postgres_and_dynamodb_store_state() -> None:
 def test_fake_bedrock_records_invocations() -> None:
     bedrock = FakeBedrockClient()
 
-    response = bedrock.invoke({"model": "claude-sonnet"})
+    response = bedrock.converse({"model": "claude-sonnet"})
 
-    assert response["ok"] is True
-    assert bedrock.requests == [{"model": "claude-sonnet"}]
+    assert response == {}
+    assert bedrock.converse_calls == [{"model": "claude-sonnet"}]
 

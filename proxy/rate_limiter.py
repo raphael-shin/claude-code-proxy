@@ -9,7 +9,6 @@ from token_service.issue_service import Clock
 @dataclass(frozen=True, slots=True)
 class RateLimitDecision:
     allowed: bool
-    status_code: int | None = None
     retry_after_seconds: int | None = None
     remaining_requests: int | None = None
 
@@ -36,7 +35,6 @@ class InMemoryRateLimiter:
             retry_after = max(1, int((window_end - now).total_seconds()))
             return RateLimitDecision(
                 allowed=False,
-                status_code=429,
                 retry_after_seconds=retry_after,
                 remaining_requests=0,
             )

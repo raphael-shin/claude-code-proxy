@@ -22,7 +22,6 @@ def test_rate_limiter_blocks_per_user_with_retry_after() -> None:
     assert second.remaining_requests == 0
 
     assert third.allowed is False
-    assert third.status_code == 429
     assert third.retry_after_seconds == 60
     assert third.remaining_requests == 0
 
@@ -37,6 +36,5 @@ def test_rate_limiter_blocks_per_user_with_retry_after() -> None:
     clock.advance(seconds=1)
     reset_window = limiter.check("user-1")
     assert reset_window.allowed is True
-    assert reset_window.status_code is None
     assert reset_window.retry_after_seconds is None
     assert reset_window.remaining_requests == 1

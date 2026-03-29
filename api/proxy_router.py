@@ -10,6 +10,8 @@ from api.errors import (
 )
 from api.observability import resolve_request_id
 from models.errors import access_denied_error, rate_limit_exceeded_error
+from proxy.audit_logger import DENIAL_REASON_AUTHENTICATION_FAILED, DENIAL_REASON_RATE_LIMITED
+from proxy.quota_engine import DENIAL_QUOTA_HARD_LIMIT_EXCEEDED
 from proxy.bedrock_converse.request_builder import build_converse_request
 from proxy.bedrock_converse.response_parser import parse_converse_response
 from proxy.bedrock_converse.stream_decoder import ConverseStreamDecoder
@@ -23,6 +25,7 @@ async def create_message(request: Request) -> JSONResponse:
     dependencies = request.app.state.dependencies
     request_id = resolve_request_id(request)
     started_at = perf_counter()
+    audit_logger = dependencies.audit_logger
 
     try:
         authenticated = dependencies.auth_service.authenticate(
@@ -30,10 +33,10 @@ async def create_message(request: Request) -> JSONResponse:
             request_id=request_id,
         )
     except Exception as error:
-        if getattr(dependencies, "audit_logger", None) is not None:
-            dependencies.audit_logger.record_denial(
+        if audit_logger is not None:
+            audit_logger.record_denial(
                 request_id=request_id,
-                denial_reason="authentication_failed",
+                denial_reason=DENIAL_REASON_AUTHENTICATION_FAILED,
                 requested_model=body.get("model"),
             )
         return error_response_for_exception(error, request_id=request_id)
@@ -46,8 +49,8 @@ async def create_message(request: Request) -> JSONResponse:
             policies=(),
         )
         if not policy_decision.allowed:
-            if getattr(dependencies, "audit_logger", None) is not None:
-                dependencies.audit_logger.record_denial(
+            if audit_logger is not None:
+                audit_logger.record_denial(
                     request_id=request_id,
                     denial_reason=policy_decision.denial_reason or "policy_denied",
                     authenticated=authenticated,
@@ -71,10 +74,10 @@ async def create_message(request: Request) -> JSONResponse:
             token_usage=None,
         )
         if not quota_decision.allowed:
-            if getattr(dependencies, "audit_logger", None) is not None:
-                dependencies.audit_logger.record_denial(
+            if audit_logger is not None:
+                audit_logger.record_denial(
                     request_id=request_id,
-                    denial_reason=quota_decision.denial_reason or "quota_hard_limit_exceeded",
+                    denial_reason=quota_decision.denial_reason or DENIAL_QUOTA_HARD_LIMIT_EXCEEDED,
                     authenticated=authenticated,
                     requested_model=body["model"],
                     resolved_model=resolved_model.bedrock_model_id,
@@ -93,10 +96,10 @@ async def create_message(request: Request) -> JSONResponse:
             headers = {}
             if rate_limit_decision.retry_after_seconds is not None:
                 headers["Retry-After"] = str(rate_limit_decision.retry_after_seconds)
-            if getattr(dependencies, "audit_logger", None) is not None:
-                dependencies.audit_logger.record_denial(
+            if audit_logger is not None:
+                audit_logger.record_denial(
                     request_id=request_id,
-                    denial_reason="rate_limited",
+                    denial_reason=DENIAL_REASON_RATE_LIMITED,
                     authenticated=authenticated,
                     requested_model=body["model"],
                     resolved_model=resolved_model.bedrock_model_id,
@@ -114,7 +117,6 @@ async def create_message(request: Request) -> JSONResponse:
         if converse_request.operation == "converse_stream":
             raw_stream = dependencies.bedrock_client.converse_stream(converse_request)
             decoder = ConverseStreamDecoder(model=body["model"])
-            audit_logger = getattr(dependencies, "audit_logger", None)
 
             def _stream_with_audit():
                 try:
@@ -139,8 +141,8 @@ async def create_message(request: Request) -> JSONResponse:
 
         raw_response = dependencies.bedrock_client.converse(converse_request)
         parsed_response = parse_converse_response(raw_response, model=body["model"])
-        if getattr(dependencies, "audit_logger", None) is not None:
-            dependencies.audit_logger.record_success(
+        if audit_logger is not None:
+            audit_logger.record_success(
                 authenticated=authenticated,
                 request_id=request_id,
                 requested_model=body["model"],

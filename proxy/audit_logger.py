@@ -8,7 +8,7 @@ from uuid import uuid4
 from models.context import AuthenticatedRequestContext
 from models.domain import AuditEventRecord, UsageEventRecord
 from proxy.policy_engine import PolicyDecision
-from proxy.quota_engine import UsageCostSnapshot
+from proxy.quota_engine import DENIAL_QUOTA_HARD_LIMIT_EXCEEDED, UsageCostSnapshot
 from repositories.usage_repository import UsageRepository
 
 Clock = Callable[[], datetime]
@@ -131,7 +131,7 @@ class AuditLogger:
 
 
 _DENIAL_REASON_TO_EVENT_TYPE = {
-    "quota_hard_limit_exceeded": AUDIT_EVENT_QUOTA_BLOCKED,
+    DENIAL_QUOTA_HARD_LIMIT_EXCEEDED: AUDIT_EVENT_QUOTA_BLOCKED,
     DENIAL_REASON_RATE_LIMITED: AUDIT_EVENT_RATE_LIMITED,
     DENIAL_REASON_AUTHENTICATION_FAILED: AUDIT_EVENT_AUTH_FAILURE,
 }

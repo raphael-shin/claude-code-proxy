@@ -62,7 +62,7 @@ from tests.api.runtime_stubs import (
                 hard_limit_reached=False,
                 projected_usage=0.0,
             ),
-            RateLimitDecision(allowed=False, status_code=429, retry_after_seconds=17),
+            RateLimitDecision(allowed=False, retry_after_seconds=17),
             429,
             "rate_limit_error",
         ),
