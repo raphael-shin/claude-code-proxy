@@ -64,8 +64,8 @@
   - [x] 7.2 Test: 사용자, 팀, 전역 budget policy가 동시에 있으면 Quota Engine은 가장 보수적인 정책을 선택한다. Code: `quota_engine.py`에 multi-scope merge만 추가한다. Verify: `pytest tests/proxy/test_quota_engine_conservative_merge.py -q`. Refactor after green: policy ordering helper를 분리한다. Covers: R6.1, R6.2, R6.3, R6.7, R6.10.
   - [x] 7.3 Test: Quota Engine은 활성 `model_pricing_catalog` row 하나를 선택해 admission cost 계산과 usage snapshot에 동일한 `pricing_catalog_id`를 사용하고, Admin API reload 이전/이후에 서로 다른 가격 row를 섞지 않는다. Code: `proxy/quota_engine.py`와 pricing repository cache contract를 확장한다. Verify: `pytest tests/proxy/test_quota_engine_pricing_snapshot.py -q`. Refactor after green: active pricing selector를 helper로 분리한다. Covers: R6.9, R6.11, R6.12, R6.13.
 
-- [ ] 8. Rate Limiter 구현
-  - [ ] 8.1 Test: 사용자별 분당 rate limit 초과 시 Proxy는 429와 `Retry-After`를 반환한다. Code: `proxy/rate_limiter.py`에 in-memory window limiter만 추가한다. Verify: `pytest tests/proxy/test_rate_limiter.py -q`. Refactor after green: clock injection을 추가한다. Covers: R5.8, R11.5.
+- [x] 8. Rate Limiter 구현
+  - [x] 8.1 Test: 사용자별 분당 rate limit 초과 시 Proxy는 429와 `Retry-After`를 반환한다. Code: `proxy/rate_limiter.py`에 in-memory window limiter만 추가한다. Verify: `pytest tests/proxy/test_rate_limiter.py -q`. Refactor after green: clock injection을 추가한다. Covers: R5.8, R11.5.
 
 - [ ] 9. Bedrock Adapter 구현
   - [ ] 9.1 Test: Anthropic 호환 요청의 최소 messages payload가 Bedrock Converse 요청으로 변환되며 adapter는 `system` 분리, text block 정규화, `tool_use`/`tool_result` 매핑을 포함한 design.md의 필드 매핑 계약을 만족하고, `Converse`/`ConverseStream` 이외의 runtime path를 사용하지 않는다. Code: `proxy/bedrock_converse/request_builder.py`에 non-streaming 최소 request mapping만 추가한다. Verify: `pytest tests/bedrock_converse/test_request_builder.py -q`. Refactor after green: field mapping table을 정리한다. Covers: R7.5, R7.6, R7.22, R15.5.
