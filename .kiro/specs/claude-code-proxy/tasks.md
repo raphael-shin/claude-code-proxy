@@ -55,9 +55,9 @@
   - [x] 5.2 Test: 허용 모델 목록에 없는 요청 모델 또는 Bedrock Converse 미지원 모델은 Proxy가 즉시 거부한다. Code: `model_resolver.py`에 unknown/non-converse model denial만 추가한다. Verify: `pytest tests/proxy/test_model_resolver_rejects_unknown_model.py -q`. Refactor after green: resolver result 타입을 명시화한다. Covers: R7.3, R7.4.
   - [x] 5.3 Test: Claude 4.5+/4.6+ feature gate는 일반 Converse 지원 여부와 분리되어 resolver source of truth에서 결정된다. Code: `proxy/model_resolver.py`와 resolver repository contract에 feature gate 필드를 추가한다. Verify: `pytest tests/proxy/test_model_resolver_feature_gates.py -q`. Refactor after green: capability normalization helper를 분리한다. Covers: R7A.1, R7A.4, R7A.5.
 
-- [ ] 6. Policy Engine 구현
-  - [ ] 6.1 Test: Policy Engine은 비활성 사용자 또는 `proxy_access_enabled=false` 사용자를 다른 평가보다 먼저 거부한다. Code: `proxy/policy_engine.py`에 user status gate만 추가한다. Verify: `pytest tests/proxy/test_policy_engine_user_gate.py -q`. Refactor after green: evaluation trace 구조체를 추가한다. Covers: R5.1, R5.2.
-  - [ ] 6.2 Test: Policy Engine은 `user -> group -> department -> global` 순서를 결정적으로 따르고 `deny > allow` 및 가장 restrictive한 값을 적용한다. Code: `policy_engine.py`에 scope merge 로직만 추가한다. Verify: `pytest tests/proxy/test_policy_engine_resolution_order.py -q`. Refactor after green: merge rules를 pure function으로 분리한다. Covers: R5.3, R5.4, R5.5.
+- [x] 6. Policy Engine 구현
+  - [x] 6.1 Test: Policy Engine은 비활성 사용자 또는 `proxy_access_enabled=false` 사용자를 다른 평가보다 먼저 거부한다. Code: `proxy/policy_engine.py`에 user status gate만 추가한다. Verify: `pytest tests/proxy/test_policy_engine_user_gate.py -q`. Refactor after green: evaluation trace 구조체를 추가한다. Covers: R5.1, R5.2.
+  - [x] 6.2 Test: Policy Engine은 `user -> group -> department -> global` 순서를 결정적으로 따르고 `deny > allow` 및 가장 restrictive한 값을 적용한다. Code: `policy_engine.py`에 scope merge 로직만 추가한다. Verify: `pytest tests/proxy/test_policy_engine_resolution_order.py -q`. Refactor after green: merge rules를 pure function으로 분리한다. Covers: R5.3, R5.4, R5.5.
 
 - [ ] 7. Quota Engine 구현
   - [ ] 7.1 Test: Quota Engine은 soft limit를 기록용으로만 다루고 hard limit 초과에서만 요청을 차단한다. Code: `proxy/quota_engine.py`에 single-policy evaluator만 추가한다. Verify: `pytest tests/proxy/test_quota_engine_soft_vs_hard.py -q`. Refactor after green: quota decision 모델을 공용화한다. Covers: R6.4, R6.5, R6.6.
