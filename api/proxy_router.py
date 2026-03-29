@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from time import perf_counter
 from typing import Any, Mapping
 
 from fastapi import APIRouter, Request
@@ -26,6 +27,7 @@ async def create_message(request: Request) -> JSONResponse:
     body = await request.json()
     dependencies = request.app.state.dependencies
     request_id = dependencies.request_id_generator()
+    started_at = perf_counter()
 
     try:
         authenticated = dependencies.auth_service.authenticate(
@@ -35,6 +37,12 @@ async def create_message(request: Request) -> JSONResponse:
             body=body,
         )
     except Exception as error:
+        if getattr(dependencies, "audit_logger", None) is not None:
+            dependencies.audit_logger.record_denial(
+                request_id=request_id,
+                denial_reason="authentication_failed",
+                requested_model=body.get("model"),
+            )
         return _error_to_response(error, request_id=request_id)
 
     try:
@@ -45,6 +53,15 @@ async def create_message(request: Request) -> JSONResponse:
             policies=(),
         )
         if not policy_decision.allowed:
+            if getattr(dependencies, "audit_logger", None) is not None:
+                dependencies.audit_logger.record_denial(
+                    request_id=request_id,
+                    denial_reason=policy_decision.denial_reason or "policy_denied",
+                    authenticated=authenticated,
+                    requested_model=body["model"],
+                    resolved_model=resolved_model.bedrock_model_id,
+                    policy_decision=policy_decision,
+                )
             return anthropic_error_response(
                 status_code=403,
                 error_type=ANTHROPIC_PERMISSION_ERROR,
@@ -60,6 +77,15 @@ async def create_message(request: Request) -> JSONResponse:
             token_usage=None,
         )
         if not quota_decision.allowed:
+            if getattr(dependencies, "audit_logger", None) is not None:
+                dependencies.audit_logger.record_denial(
+                    request_id=request_id,
+                    denial_reason=quota_decision.denial_reason or "quota_hard_limit_exceeded",
+                    authenticated=authenticated,
+                    requested_model=body["model"],
+                    resolved_model=resolved_model.bedrock_model_id,
+                    policy_decision=policy_decision,
+                )
             return anthropic_error_response(
                 status_code=403,
                 error_type=ANTHROPIC_PERMISSION_ERROR,
@@ -72,6 +98,15 @@ async def create_message(request: Request) -> JSONResponse:
             headers = {}
             if rate_limit_decision.retry_after_seconds is not None:
                 headers["Retry-After"] = str(rate_limit_decision.retry_after_seconds)
+            if getattr(dependencies, "audit_logger", None) is not None:
+                dependencies.audit_logger.record_denial(
+                    request_id=request_id,
+                    denial_reason="rate_limited",
+                    authenticated=authenticated,
+                    requested_model=body["model"],
+                    resolved_model=resolved_model.bedrock_model_id,
+                    policy_decision=policy_decision,
+                )
             return anthropic_error_response(
                 status_code=429,
                 error_type=ANTHROPIC_RATE_LIMIT_ERROR,
@@ -84,13 +119,42 @@ async def create_message(request: Request) -> JSONResponse:
         if bool(body.get("stream")):
             raw_stream = dependencies.bedrock_client.converse_stream(converse_request)
             decoder = ConverseStreamDecoder(model=body["model"])
+            audit_logger = getattr(dependencies, "audit_logger", None)
+
+            def _stream_with_audit():
+                try:
+                    yield from decoder.iter_sse_events(raw_stream)
+                finally:
+                    if audit_logger is not None:
+                        audit_logger.record_success(
+                            authenticated=authenticated,
+                            request_id=request_id,
+                            requested_model=body["model"],
+                            resolved_model=resolved_model.bedrock_model_id,
+                            policy_decision=policy_decision,
+                            usage=decoder.final_usage,
+                            usage_snapshot=quota_decision.usage_snapshot,
+                            latency_ms=_elapsed_latency_ms(started_at),
+                        )
+
             return StreamingResponse(
-                decoder.iter_sse_events(raw_stream),
+                _stream_with_audit(),
                 media_type="text/event-stream",
             )
 
         raw_response = dependencies.bedrock_client.converse(converse_request)
         parsed_response = parse_converse_response(raw_response, model=body["model"])
+        if getattr(dependencies, "audit_logger", None) is not None:
+            dependencies.audit_logger.record_success(
+                authenticated=authenticated,
+                request_id=request_id,
+                requested_model=body["model"],
+                resolved_model=resolved_model.bedrock_model_id,
+                policy_decision=policy_decision,
+                usage=parsed_response["usage"],
+                usage_snapshot=quota_decision.usage_snapshot,
+                latency_ms=_elapsed_latency_ms(started_at),
+            )
         return JSONResponse(status_code=200, content=parsed_response)
     except Exception as error:
         return _error_to_response(error, request_id=request_id)
@@ -147,3 +211,7 @@ def _error_to_response(error: Exception, *, request_id: str) -> JSONResponse:
         request_id=request_id,
         details={"reason": error.__class__.__name__},
     )
+
+
+def _elapsed_latency_ms(started_at: float) -> int:
+    return int((perf_counter() - started_at) * 1000)

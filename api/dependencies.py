@@ -27,6 +27,7 @@ class AppDependencies:
     quota_engine: Any | None = None
     rate_limiter: Any | None = None
     bedrock_client: Any | None = None
+    audit_logger: Any | None = None
     request_id_generator: Callable[[], str] = default_request_id_generator
     readiness_checks: tuple[Callable[[], bool], ...] = field(default_factory=tuple)
 

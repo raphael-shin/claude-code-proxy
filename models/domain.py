@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from enum import Enum
+from typing import Any
 
 
 def utc_now() -> datetime:
@@ -167,10 +168,23 @@ class UsageEventRecord:
     id: str
     request_id: str
     user_id: str
-    model: str
+    user_email: str | None
+    requested_model: str
+    resolved_model: str | None
+    pricing_catalog_id: str | None
+    input_tokens: int
+    output_tokens: int
     total_tokens: int
-    cost_usd: float
-    created_at: datetime
+    cache_write_input_tokens: int = 0
+    cache_read_input_tokens: int = 0
+    cache_details: dict[str, Any] | None = None
+    estimated_input_cost_usd: float = 0.0
+    estimated_output_cost_usd: float = 0.0
+    estimated_cache_write_cost_usd: float = 0.0
+    estimated_cache_read_cost_usd: float = 0.0
+    estimated_total_cost_usd: float = 0.0
+    latency_ms: int | None = None
+    created_at: datetime = field(default_factory=utc_now)
 
 
 @dataclass(frozen=True, slots=True)
@@ -179,5 +193,10 @@ class AuditEventRecord:
     request_id: str
     event_type: str
     actor_user_id: str | None
+    actor_user_email: str | None
     decision: str
-    created_at: datetime
+    requested_model: str | None = None
+    resolved_model: str | None = None
+    denial_reason: str | None = None
+    policy_result: dict[str, Any] | None = None
+    created_at: datetime = field(default_factory=utc_now)

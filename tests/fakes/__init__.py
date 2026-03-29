@@ -3,6 +3,7 @@ from tests.fakes.fake_clock import FakeClock
 from tests.fakes.fake_dynamodb import FakeDynamoDbTable
 from tests.fakes.fake_encryption import FakeEncryptionService
 from tests.fakes.fake_postgres import FakePostgresConnection
+from tests.fakes.fake_usage_repository import InMemoryUsageRepository
 from tests.fakes.fake_repositories import (
     InMemoryModelAliasRepository,
     InMemoryModelRouteRepository,
@@ -23,6 +24,7 @@ __all__ = [
     "InMemoryModelAliasRepository",
     "InMemoryModelRouteRepository",
     "InMemoryPricingRepository",
+    "InMemoryUsageRepository",
     "InMemoryUserRepository",
     "InMemoryVirtualKeyCacheRepository",
     "InMemoryVirtualKeyLedgerRepository",
