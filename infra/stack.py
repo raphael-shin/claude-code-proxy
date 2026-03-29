@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from aws_cdk import BootstraplessSynthesizer, Environment, Stack
+from aws_cdk import Aspects, BootstraplessSynthesizer, Environment, Stack
 from constructs import Construct
 
+from infra.aspects import SecurityGuardsAspect
 from infra.config import ClaudeCodeProxyStackProps
 from infra.constructs import (
     AdminApiConstruct,
@@ -30,6 +31,7 @@ class ClaudeCodeProxyStack(Stack):
             stack_name=props.naming.stack_name,
             synthesizer=BootstraplessSynthesizer(),
         )
+        Aspects.of(self).add(SecurityGuardsAspect())
         self.props = props
         self.network = NetworkConstruct(self, "Network", config=props.network)
         self.data_plane = DataPlaneConstruct(

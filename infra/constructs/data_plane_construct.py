@@ -36,6 +36,7 @@ class DataPlaneConstruct(Construct):
             vpc=network.vpc,
             vpc_subnets=network.private_subnet_selection,
             security_groups=[network.database_security_group],
+            storage_encrypted=True,
             removal_policy=RemovalPolicy.DESTROY,
         )
         if self.database_cluster.secret is None:

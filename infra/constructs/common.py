@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from typing import Any
+
 from aws_cdk import aws_apigateway as apigateway
+from aws_cdk import aws_lambda as lambda_
 from aws_cdk import aws_logs as logs
 from constructs import Construct
 
@@ -54,3 +57,23 @@ def make_rest_api(
             ),
         ),
     )
+
+
+def make_lambda_log_group(
+    scope: Construct,
+    construct_id: str,
+    *,
+    log_retention_days: int,
+) -> logs.LogGroup:
+    return logs.LogGroup(
+        scope,
+        construct_id,
+        retention=retention_days(log_retention_days),
+    )
+
+
+def lambda_observability_defaults(*, log_group: logs.ILogGroup) -> dict[str, Any]:
+    return {
+        "log_group": log_group,
+        "tracing": lambda_.Tracing.DISABLED,
+    }

@@ -6,7 +6,12 @@ from aws_cdk import aws_logs as logs
 from constructs import Construct
 
 from infra.config import AdminApiConfig
-from infra.constructs.common import make_rest_api, retention_days
+from infra.constructs.common import (
+    lambda_observability_defaults,
+    make_lambda_log_group,
+    make_rest_api,
+    retention_days,
+)
 
 
 class AdminApiConstruct(Construct):
@@ -18,6 +23,11 @@ class AdminApiConstruct(Construct):
             "AccessLogs",
             retention=retention_days(config.log_retention_days),
         )
+        self.handler_log_group = make_lambda_log_group(
+            self,
+            "HandlerLogGroup",
+            log_retention_days=config.log_retention_days,
+        )
         self.handler = lambda_.Function(
             self,
             "Handler",
@@ -25,6 +35,7 @@ class AdminApiConstruct(Construct):
             handler="index.handler",
             code=lambda_.InlineCode(_admin_handler_code()),
             description="admin api request handler",
+            **lambda_observability_defaults(log_group=self.handler_log_group),
         )
         self.api = make_rest_api(
             self,

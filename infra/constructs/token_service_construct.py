@@ -7,7 +7,12 @@ from aws_cdk import aws_logs as logs
 from constructs import Construct
 
 from infra.config import TokenServiceConfig
-from infra.constructs.common import make_rest_api, retention_days
+from infra.constructs.common import (
+    lambda_observability_defaults,
+    make_lambda_log_group,
+    make_rest_api,
+    retention_days,
+)
 from infra.constructs.data_plane_construct import DataPlaneConstruct
 from infra.constructs.network_construct import NetworkConstruct
 
@@ -29,6 +34,11 @@ class TokenServiceConstruct(Construct):
             "AccessLogs",
             retention=retention_days(config.log_retention_days),
         )
+        self.handler_log_group = make_lambda_log_group(
+            self,
+            "HandlerLogGroup",
+            log_retention_days=config.log_retention_days,
+        )
         self.handler = lambda_.Function(
             self,
             "Handler",
@@ -40,10 +50,16 @@ class TokenServiceConstruct(Construct):
             vpc_subnets=network.private_subnet_selection if network is not None else None,
             security_groups=[network.token_service_security_group] if network is not None else None,
             environment=_lambda_environment(data_plane),
+            **lambda_observability_defaults(log_group=self.handler_log_group),
         )
         self.authorizer_handler: lambda_.Function | None = None
         self.authorizer: apigateway.RequestAuthorizer | None = None
         if config.authorizer.enabled:
+            self.authorizer_log_group = make_lambda_log_group(
+                self,
+                "AuthorizerLogGroup",
+                log_retention_days=config.log_retention_days,
+            )
             self.authorizer_handler = lambda_.Function(
                 self,
                 "RequestAuthorizerHandler",
@@ -51,6 +67,7 @@ class TokenServiceConstruct(Construct):
                 handler="index.handler",
                 code=lambda_.InlineCode(_authorizer_handler_code()),
                 description="token service request authorizer",
+                **lambda_observability_defaults(log_group=self.authorizer_log_group),
             )
             self.authorizer = apigateway.RequestAuthorizer(
                 self,

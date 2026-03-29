@@ -32,6 +32,7 @@ testpaths = ["tests"]
 packages = [
     "api",
     "infra",
+    "infra.aspects",
     "infra.constructs",
     "infra.postgres",
     "models",
