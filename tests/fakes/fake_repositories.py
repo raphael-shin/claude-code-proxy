@@ -2,7 +2,15 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from models.domain import IdentityMapping, UserRecord, VirtualKeyCacheEntry, VirtualKeyRecord, VirtualKeyStatus
+from models.domain import (
+    IdentityMapping,
+    ModelAliasRuleRecord,
+    ModelRouteRecord,
+    UserRecord,
+    VirtualKeyCacheEntry,
+    VirtualKeyRecord,
+    VirtualKeyStatus,
+)
 
 
 class InMemoryUserRepository:
@@ -84,3 +92,28 @@ class InMemoryVirtualKeyCacheRepository:
         self.invalidated_user_ids.append(user_id)
         self._entries.pop(user_id, None)
 
+
+class InMemoryModelAliasRepository:
+    def __init__(self, rules: list[ModelAliasRuleRecord] | None = None) -> None:
+        self._rules = list(rules or [])
+        self.list_alias_rules_calls = 0
+
+    def add_rule(self, rule: ModelAliasRuleRecord) -> None:
+        self._rules.append(rule)
+
+    def list_alias_rules(self) -> list[ModelAliasRuleRecord]:
+        self.list_alias_rules_calls += 1
+        return list(self._rules)
+
+
+class InMemoryModelRouteRepository:
+    def __init__(self, routes: list[ModelRouteRecord] | None = None) -> None:
+        self._routes = list(routes or [])
+        self.list_model_routes_calls = 0
+
+    def add_route(self, route: ModelRouteRecord) -> None:
+        self._routes.append(route)
+
+    def list_model_routes(self) -> list[ModelRouteRecord]:
+        self.list_model_routes_calls += 1
+        return list(self._routes)

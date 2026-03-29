@@ -4,6 +4,8 @@ from tests.fakes.fake_dynamodb import FakeDynamoDbTable
 from tests.fakes.fake_encryption import FakeEncryptionService
 from tests.fakes.fake_postgres import FakePostgresConnection
 from tests.fakes.fake_repositories import (
+    InMemoryModelAliasRepository,
+    InMemoryModelRouteRepository,
     InMemoryUserRepository,
     InMemoryVirtualKeyCacheRepository,
     InMemoryVirtualKeyLedgerRepository,
@@ -17,8 +19,9 @@ __all__ = [
     "FakeEncryptionService",
     "FakePostgresConnection",
     "FakeRequestIdGenerator",
+    "InMemoryModelAliasRepository",
+    "InMemoryModelRouteRepository",
     "InMemoryUserRepository",
     "InMemoryVirtualKeyCacheRepository",
     "InMemoryVirtualKeyLedgerRepository",
 ]
-
