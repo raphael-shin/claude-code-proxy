@@ -35,6 +35,7 @@ class AppDependencies:
     rate_limiter: Any | None = None
     bedrock_client: Any | None = None
     audit_logger: Any | None = None
+    runtime_metrics: Any | None = None
     request_id_generator: Callable[[], str] = default_request_id_generator
     readiness_checks: tuple[Callable[[], bool], ...] = field(default_factory=tuple)
     admin_principal_header: str = "X-Admin-Principal"

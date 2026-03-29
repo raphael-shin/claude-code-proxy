@@ -123,9 +123,9 @@
 - [x] 18. apiKeyHelper 스크립트 구현
   - [x] 18.1 Test: `apiKeyHelper`는 유효한 로컬 cache가 있으면 100ms 이내에 key를 반환하고, cache miss나 손상 시 Token Service를 다시 호출하며, 연결 실패 시 빠르게 실패한다. Code: `scripts/apiKeyHelper`와 cache file helper를 추가한다. Verify: `pytest tests/scripts/test_api_key_helper.py -q`. Refactor after green: CLI command runner를 분리한다. Covers: R1.1-R1.7, R11.1, R14.1, R16.1.
 
-- [ ] 19. 최소 로깅 및 에러 처리 통합
-  - [ ] 19.1 Test: 모든 failure path는 `request_id`를 포함한 구조화 로그와 최소 runtime metrics를 남긴다. Code: logging middleware와 basic metrics hooks를 추가한다. Verify: `pytest tests/observability/test_request_id_and_metrics.py -q`. Refactor after green: metric names/constants를 모듈화한다. Covers: R13.1-R13.5, R14.7.
-  - [ ] 19.2 Test: Anthropic 호환 에러 응답은 auth, permission, rate limit, invalid request, upstream failure를 올바른 HTTP status와 envelope로 매핑한다. Code: `models/errors.py`와 `api/errors.py`를 잇는 공용 error handler를 추가한다. Verify: `pytest tests/api/test_error_envelopes.py -q`. Refactor after green: error enum과 mapper를 통합한다. Covers: R14.8, R15.5.
+- [x] 19. 최소 로깅 및 에러 처리 통합
+  - [x] 19.1 Test: 모든 failure path는 `request_id`를 포함한 구조화 로그와 최소 runtime metrics를 남긴다. Code: logging middleware와 basic metrics hooks를 추가한다. Verify: `pytest tests/observability/test_request_id_and_metrics.py -q`. Refactor after green: metric names/constants를 모듈화한다. Covers: R13.1-R13.5, R14.7.
+  - [x] 19.2 Test: Anthropic 호환 에러 응답은 auth, permission, rate limit, invalid request, upstream failure를 올바른 HTTP status와 envelope로 매핑한다. Code: `models/errors.py`와 `api/errors.py`를 잇는 공용 error handler를 추가한다. Verify: `pytest tests/api/test_error_envelopes.py -q`. Refactor after green: error enum과 mapper를 통합한다. Covers: R14.8, R15.5.
 
 - [ ] 20. 성능 계약 검증
   - [ ] 20.1 Test: 성능 probe는 local cache hit, Token Service response, first streaming token latency에 대한 계약을 검증한다. Code: lightweight benchmark/contract test harness를 추가한다. Verify: `pytest tests/perf/test_contracts.py -q`. Refactor after green: perf thresholds를 설정 파일로 이동한다. Covers: R16.1, R16.2, R16.3.

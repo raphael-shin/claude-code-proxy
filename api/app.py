@@ -10,12 +10,14 @@ from api.admin_virtual_keys import router as admin_virtual_keys_router
 from api.dependencies import AppDependencies
 from api.health_router import router as health_router
 from api.internal_ops import router as internal_ops_router
+from api.observability import install_runtime_observability
 from api.proxy_router import router as proxy_router
 
 
 def create_app(dependencies: AppDependencies | None = None) -> FastAPI:
     app = FastAPI(title="Claude Code Proxy")
     app.state.dependencies = dependencies or AppDependencies()
+    install_runtime_observability(app)
     app.include_router(proxy_router)
     app.include_router(admin_users_router)
     app.include_router(admin_budget_policies_router)

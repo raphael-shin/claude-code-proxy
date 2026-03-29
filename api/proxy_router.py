@@ -6,17 +6,13 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from api.errors import (
-    ANTHROPIC_API_ERROR,
-    ANTHROPIC_INVALID_REQUEST_ERROR,
-    ANTHROPIC_PERMISSION_ERROR,
-    ANTHROPIC_RATE_LIMIT_ERROR,
-    anthropic_error_response,
-    service_error_response,
+    error_response_for_exception,
 )
-from proxy.bedrock_converse.request_builder import BedrockRequestBuildError, build_converse_request
+from api.observability import resolve_request_id
+from models.errors import access_denied_error, rate_limit_exceeded_error
+from proxy.bedrock_converse.request_builder import build_converse_request
 from proxy.bedrock_converse.response_parser import parse_converse_response
 from proxy.bedrock_converse.stream_decoder import ConverseStreamDecoder
-from proxy.model_resolver import ModelResolutionError
 
 router = APIRouter()
 
@@ -25,7 +21,7 @@ router = APIRouter()
 async def create_message(request: Request) -> JSONResponse:
     body = await request.json()
     dependencies = request.app.state.dependencies
-    request_id = dependencies.request_id_generator()
+    request_id = resolve_request_id(request)
     started_at = perf_counter()
 
     try:
@@ -40,7 +36,7 @@ async def create_message(request: Request) -> JSONResponse:
                 denial_reason="authentication_failed",
                 requested_model=body.get("model"),
             )
-        return _error_to_response(error, request_id=request_id)
+        return error_response_for_exception(error, request_id=request_id)
 
     try:
         resolved_model = dependencies.model_resolver.resolve(body["model"])
@@ -59,10 +55,11 @@ async def create_message(request: Request) -> JSONResponse:
                     resolved_model=resolved_model.bedrock_model_id,
                     policy_decision=policy_decision,
                 )
-            return anthropic_error_response(
-                status_code=403,
-                error_type=ANTHROPIC_PERMISSION_ERROR,
-                message=f"Request blocked by policy: {policy_decision.denial_reason}.",
+            return error_response_for_exception(
+                access_denied_error(
+                    request_id,
+                    message=f"Request blocked by policy: {policy_decision.denial_reason}.",
+                ),
                 request_id=request_id,
             )
 
@@ -83,10 +80,11 @@ async def create_message(request: Request) -> JSONResponse:
                     resolved_model=resolved_model.bedrock_model_id,
                     policy_decision=policy_decision,
                 )
-            return anthropic_error_response(
-                status_code=403,
-                error_type=ANTHROPIC_PERMISSION_ERROR,
-                message=f"Request blocked by quota: {quota_decision.denial_reason}.",
+            return error_response_for_exception(
+                access_denied_error(
+                    request_id,
+                    message=f"Request blocked by quota: {quota_decision.denial_reason}.",
+                ),
                 request_id=request_id,
             )
 
@@ -104,12 +102,12 @@ async def create_message(request: Request) -> JSONResponse:
                     resolved_model=resolved_model.bedrock_model_id,
                     policy_decision=policy_decision,
                 )
-            return anthropic_error_response(
-                status_code=429,
-                error_type=ANTHROPIC_RATE_LIMIT_ERROR,
-                message="Rate limit exceeded.",
+            return error_response_for_exception(
+                rate_limit_exceeded_error(
+                    request_id,
+                    headers=headers,
+                ),
                 request_id=request_id,
-                headers=headers,
             )
 
         converse_request = build_converse_request(body, resolved_model=resolved_model)
@@ -154,14 +152,14 @@ async def create_message(request: Request) -> JSONResponse:
             )
         return JSONResponse(status_code=200, content=parsed_response)
     except Exception as error:
-        return _error_to_response(error, request_id=request_id)
+        return error_response_for_exception(error, request_id=request_id)
 
 
 @router.post("/v1/messages/count_tokens")
 async def count_tokens(request: Request) -> JSONResponse:
     body = await request.json()
     dependencies = request.app.state.dependencies
-    request_id = dependencies.request_id_generator()
+    request_id = resolve_request_id(request)
 
     try:
         dependencies.auth_service.authenticate(
@@ -172,32 +170,12 @@ async def count_tokens(request: Request) -> JSONResponse:
         converse_request = build_converse_request(body, resolved_model=resolved_model)
         count_response = dependencies.bedrock_client.count_tokens(converse_request)
     except Exception as error:
-        return _error_to_response(error, request_id=request_id)
+        return error_response_for_exception(error, request_id=request_id)
 
     input_tokens = int(
         count_response.get("inputTokens", count_response.get("input_tokens", 0)) or 0
     )
     return JSONResponse(status_code=200, content={"input_tokens": input_tokens})
-
-
-def _error_to_response(error: Exception, *, request_id: str) -> JSONResponse:
-    if isinstance(error, (BedrockRequestBuildError, ModelResolutionError)):
-        return anthropic_error_response(
-            status_code=400,
-            error_type=ANTHROPIC_INVALID_REQUEST_ERROR,
-            message=error.message,
-            request_id=request_id,
-            details={"reason": error.reason},
-        )
-    if hasattr(error, "status_code") and hasattr(error, "code"):
-        return service_error_response(error)  # type: ignore[arg-type]
-    return anthropic_error_response(
-        status_code=502,
-        error_type=ANTHROPIC_API_ERROR,
-        message="Upstream request failed.",
-        request_id=request_id,
-        details={"reason": error.__class__.__name__},
-    )
 
 
 def _elapsed_latency_ms(started_at: float) -> int:
