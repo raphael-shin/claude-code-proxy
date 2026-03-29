@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import subprocess
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -13,7 +15,6 @@ from proxy.model_resolver import ResolvedModel, ResolvedModelCapabilities
 from proxy.policy_engine import PolicyDecision
 from proxy.quota_engine import QuotaDecision
 from proxy.rate_limiter import RateLimitDecision
-from scripts.api_key_helper import ApiKeyHelper, CacheFileHelper
 from tests.api.runtime_stubs import (
     AuthServiceStub,
     BedrockClientStub,
@@ -42,33 +43,52 @@ from token_service.handler import TokenServiceHandlerDependencies, handle_get_or
 from token_service.issue_service import TokenIssueService
 
 
-class SessionBootstrapperStub:
-    def ensure_session(self) -> None:
-        raise AssertionError("cached api key probe should not refresh the session")
-
-    def export_credentials(self):  # pragma: no cover - defensive
-        raise AssertionError("cached api key probe should not export credentials")
-
-
-class TokenServiceClientStub:
-    def get_or_create_key(self, credentials):  # pragma: no cover - defensive
-        del credentials
-        raise AssertionError("cached api key probe should not call the token service")
-
-
 def test_perf_contract_local_cache_hit_returns_within_100ms(tmp_path: Path) -> None:
-    now = datetime(2026, 3, 29, tzinfo=timezone.utc)
-    cache = CacheFileHelper(path=tmp_path / "cache.json")
-    cache.store(virtual_key="vk_cached_perf_1234567890", now=now, ttl_seconds=300)
-    helper = ApiKeyHelper(
-        cache=cache,
-        session_bootstrapper=SessionBootstrapperStub(),
-        token_service_client=TokenServiceClientStub(),
-        clock=lambda: now,
+    repo_root = Path(__file__).resolve().parents[2]
+    script_path = repo_root / "scripts" / "api_key_helper.sh"
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    cache_path = tmp_path / "cache.json"
+    cache_path.write_text(
+        json.dumps(
+            {
+                "virtual_key": "vk_cached_perf_1234567890",
+                "expires_at_epoch": int((datetime.now(timezone.utc) + timedelta(minutes=5)).timestamp()),
+            }
+        )
     )
 
+    for command_name in ("aws", "curl"):
+        stub_path = fake_bin / command_name
+        stub_path.write_text(
+            """#!/usr/bin/env bash
+set -euo pipefail
+exit 99
+"""
+        )
+        stub_path.chmod(0o755)
+
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin}:{env['PATH']}"
+    env["HOME"] = str(tmp_path)
+    env["CLAUDE_CODE_PROXY_TOKEN_SERVICE_URL"] = "https://token.example.com/token-service/get-or-create-key"
+    env["AWS_REGION"] = "ap-northeast-2"
+    env["CLAUDE_CODE_PROXY_CACHE_PATH"] = str(cache_path)
+
+    def invoke_helper() -> str:
+        completed = subprocess.run(
+            ["bash", str(script_path)],
+            cwd=repo_root,
+            env=env,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        assert completed.returncode == 0, completed.stderr
+        return completed.stdout.strip()
+
     probe, results = run_probe(
-        helper.get_api_key,
+        invoke_helper,
         warmups=PERF_WARMUP_RUNS,
         sample_size=PERF_SAMPLE_SIZE,
     )
