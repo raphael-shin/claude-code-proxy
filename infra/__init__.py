@@ -1,2 +1,1 @@
-# Infrastructure contracts live under this package.
-
+"""Infrastructure package for CDK composition roots and construct modules."""
