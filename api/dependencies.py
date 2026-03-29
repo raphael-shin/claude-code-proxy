@@ -22,6 +22,13 @@ from token_service.issue_service import DEFAULT_CACHE_TTL, Clock, KeyGenerator, 
 class AppDependencies:
     token_service: TokenServiceHandlerDependencies | None = None
     auth_service: Any | None = None
+    admin_identity_repository: Any | None = None
+    user_provisioning_service: Any | None = None
+    budget_policy_service: Any | None = None
+    virtual_key_admin_service: Any | None = None
+    model_mapping_service: Any | None = None
+    usage_query_service: Any | None = None
+    internal_cache_ops_service: Any | None = None
     model_resolver: Any | None = None
     policy_engine: Any | None = None
     quota_engine: Any | None = None
@@ -30,6 +37,8 @@ class AppDependencies:
     audit_logger: Any | None = None
     request_id_generator: Callable[[], str] = default_request_id_generator
     readiness_checks: tuple[Callable[[], bool], ...] = field(default_factory=tuple)
+    admin_principal_header: str = "X-Admin-Principal"
+    internal_ops_token: str | None = None
 
 
 def build_token_service_dependencies(

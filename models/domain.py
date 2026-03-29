@@ -184,6 +184,7 @@ class UsageEventRecord:
     estimated_cache_read_cost_usd: float = 0.0
     estimated_total_cost_usd: float = 0.0
     latency_ms: int | None = None
+    team_id: str | None = None
     created_at: datetime = field(default_factory=utc_now)
 
 
@@ -199,4 +200,5 @@ class AuditEventRecord:
     resolved_model: str | None = None
     denial_reason: str | None = None
     policy_result: dict[str, Any] | None = None
+    team_id: str | None = None
     created_at: datetime = field(default_factory=utc_now)
