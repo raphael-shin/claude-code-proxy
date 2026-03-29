@@ -52,7 +52,7 @@
 
 - [ ] 5. Model Resolver 구현
   - [x] 5.1 Test: Model Resolver는 요청 모델명을 `logical_model`로 해석한 뒤 Bedrock Converse model ID와 capability bundle(`bedrock_api_route=converse`, region/profile, `supports_native_structured_output`, `supports_reasoning`, `supports_prompt_cache_ttl`, `supports_disable_parallel_tool_use`)로 매핑한다. Code: `proxy/model_resolver.py`에 alias rule match와 route lookup 최소 구현을 추가한다. Verify: `pytest tests/proxy/test_model_resolver_happy_path.py -q`. Refactor after green: priority sort helper를 분리한다. Covers: R7.1, R7.2, R7.19, R7A.1.
-  - [ ] 5.2 Test: 허용 모델 목록에 없는 요청 모델 또는 Bedrock Converse 미지원 모델은 Proxy가 즉시 거부한다. Code: `model_resolver.py`에 unknown/non-converse model denial만 추가한다. Verify: `pytest tests/proxy/test_model_resolver_rejects_unknown_model.py -q`. Refactor after green: resolver result 타입을 명시화한다. Covers: R7.3, R7.4.
+  - [x] 5.2 Test: 허용 모델 목록에 없는 요청 모델 또는 Bedrock Converse 미지원 모델은 Proxy가 즉시 거부한다. Code: `model_resolver.py`에 unknown/non-converse model denial만 추가한다. Verify: `pytest tests/proxy/test_model_resolver_rejects_unknown_model.py -q`. Refactor after green: resolver result 타입을 명시화한다. Covers: R7.3, R7.4.
   - [ ] 5.3 Test: Claude 4.5+/4.6+ feature gate는 일반 Converse 지원 여부와 분리되어 resolver source of truth에서 결정된다. Code: `proxy/model_resolver.py`와 resolver repository contract에 feature gate 필드를 추가한다. Verify: `pytest tests/proxy/test_model_resolver_feature_gates.py -q`. Refactor after green: capability normalization helper를 분리한다. Covers: R7A.1, R7A.4, R7A.5.
 
 - [ ] 6. Policy Engine 구현

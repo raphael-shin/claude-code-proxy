@@ -62,6 +62,15 @@ class ModelResolver:
                 reason="unsupported_model_route",
                 message=f"Logical model '{alias_rule.logical_model}' has no supported Bedrock Converse route.",
             )
+        if route.bedrock_api_route != "converse":
+            raise ModelResolutionError(
+                requested_model=requested_model,
+                reason="unsupported_model_route",
+                message=(
+                    f"Logical model '{alias_rule.logical_model}' resolves to "
+                    f"unsupported Bedrock route '{route.bedrock_api_route}'."
+                ),
+            )
 
         return ResolvedModel(
             requested_model=requested_model,
@@ -91,7 +100,7 @@ class ModelResolver:
         matching_routes = [
             route
             for route in self._model_route_repository.list_model_routes()
-            if route.is_active and route.logical_model == logical_model and route.bedrock_api_route == "converse"
+            if route.is_active and route.logical_model == logical_model
         ]
         return self._select_highest_priority(matching_routes)
 
