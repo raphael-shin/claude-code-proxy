@@ -59,10 +59,10 @@
   - [x] 6.1 Test: Policy Engine은 비활성 사용자 또는 `proxy_access_enabled=false` 사용자를 다른 평가보다 먼저 거부한다. Code: `proxy/policy_engine.py`에 user status gate만 추가한다. Verify: `pytest tests/proxy/test_policy_engine_user_gate.py -q`. Refactor after green: evaluation trace 구조체를 추가한다. Covers: R5.1, R5.2.
   - [x] 6.2 Test: Policy Engine은 `user -> group -> department -> global` 순서를 결정적으로 따르고 `deny > allow` 및 가장 restrictive한 값을 적용한다. Code: `policy_engine.py`에 scope merge 로직만 추가한다. Verify: `pytest tests/proxy/test_policy_engine_resolution_order.py -q`. Refactor after green: merge rules를 pure function으로 분리한다. Covers: R5.3, R5.4, R5.5.
 
-- [ ] 7. Quota Engine 구현
-  - [ ] 7.1 Test: Quota Engine은 soft limit를 기록용으로만 다루고 hard limit 초과에서만 요청을 차단한다. Code: `proxy/quota_engine.py`에 single-policy evaluator만 추가한다. Verify: `pytest tests/proxy/test_quota_engine_soft_vs_hard.py -q`. Refactor after green: quota decision 모델을 공용화한다. Covers: R6.4, R6.5, R6.6.
-  - [ ] 7.2 Test: 사용자, 팀, 전역 budget policy가 동시에 있으면 Quota Engine은 가장 보수적인 정책을 선택한다. Code: `quota_engine.py`에 multi-scope merge만 추가한다. Verify: `pytest tests/proxy/test_quota_engine_conservative_merge.py -q`. Refactor after green: policy ordering helper를 분리한다. Covers: R6.1, R6.2, R6.3, R6.7, R6.10.
-  - [ ] 7.3 Test: Quota Engine은 활성 `model_pricing_catalog` row 하나를 선택해 admission cost 계산과 usage snapshot에 동일한 `pricing_catalog_id`를 사용하고, Admin API reload 이전/이후에 서로 다른 가격 row를 섞지 않는다. Code: `proxy/quota_engine.py`와 pricing repository cache contract를 확장한다. Verify: `pytest tests/proxy/test_quota_engine_pricing_snapshot.py -q`. Refactor after green: active pricing selector를 helper로 분리한다. Covers: R6.9, R6.11, R6.12, R6.13.
+- [x] 7. Quota Engine 구현
+  - [x] 7.1 Test: Quota Engine은 soft limit를 기록용으로만 다루고 hard limit 초과에서만 요청을 차단한다. Code: `proxy/quota_engine.py`에 single-policy evaluator만 추가한다. Verify: `pytest tests/proxy/test_quota_engine_soft_vs_hard.py -q`. Refactor after green: quota decision 모델을 공용화한다. Covers: R6.4, R6.5, R6.6.
+  - [x] 7.2 Test: 사용자, 팀, 전역 budget policy가 동시에 있으면 Quota Engine은 가장 보수적인 정책을 선택한다. Code: `quota_engine.py`에 multi-scope merge만 추가한다. Verify: `pytest tests/proxy/test_quota_engine_conservative_merge.py -q`. Refactor after green: policy ordering helper를 분리한다. Covers: R6.1, R6.2, R6.3, R6.7, R6.10.
+  - [x] 7.3 Test: Quota Engine은 활성 `model_pricing_catalog` row 하나를 선택해 admission cost 계산과 usage snapshot에 동일한 `pricing_catalog_id`를 사용하고, Admin API reload 이전/이후에 서로 다른 가격 row를 섞지 않는다. Code: `proxy/quota_engine.py`와 pricing repository cache contract를 확장한다. Verify: `pytest tests/proxy/test_quota_engine_pricing_snapshot.py -q`. Refactor after green: active pricing selector를 helper로 분리한다. Covers: R6.9, R6.11, R6.12, R6.13.
 
 - [ ] 8. Rate Limiter 구현
   - [ ] 8.1 Test: 사용자별 분당 rate limit 초과 시 Proxy는 429와 `Retry-After`를 반환한다. Code: `proxy/rate_limiter.py`에 in-memory window limiter만 추가한다. Verify: `pytest tests/proxy/test_rate_limiter.py -q`. Refactor after green: clock injection을 추가한다. Covers: R5.8, R11.5.

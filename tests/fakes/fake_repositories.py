@@ -5,6 +5,7 @@ from datetime import datetime
 from models.domain import (
     IdentityMapping,
     ModelAliasRuleRecord,
+    ModelPricingRecord,
     ModelRouteRecord,
     UserRecord,
     VirtualKeyCacheEntry,
@@ -117,3 +118,26 @@ class InMemoryModelRouteRepository:
     def list_model_routes(self) -> list[ModelRouteRecord]:
         self.list_model_routes_calls += 1
         return list(self._routes)
+
+
+class InMemoryPricingRepository:
+    def __init__(self, pricing: ModelPricingRecord | None = None) -> None:
+        self._active_pricing = pricing
+        self._pending_pricing: ModelPricingRecord | None = None
+        self.get_active_pricing_calls: list[str] = []
+        self.reload_calls = 0
+
+    def stage_reload(self, pricing: ModelPricingRecord) -> None:
+        self._pending_pricing = pricing
+
+    def get_active_pricing(self, *, model_id: str, at_date=None) -> ModelPricingRecord | None:
+        self.get_active_pricing_calls.append(model_id)
+        if self._active_pricing is None or self._active_pricing.model_id != model_id:
+            return None
+        return self._active_pricing
+
+    def reload(self) -> None:
+        self.reload_calls += 1
+        if self._pending_pricing is not None:
+            self._active_pricing = self._pending_pricing
+            self._pending_pricing = None

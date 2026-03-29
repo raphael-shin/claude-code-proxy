@@ -8,7 +8,7 @@ from repositories.pricing_repository import PricingRepository
 from repositories.usage_repository import UsageRepository
 from repositories.user_repository import PostgresUserRepository, UserRepository
 from repositories.virtual_key_repository import DynamoDbVirtualKeyCache, PostgresVirtualKeyRepository, VirtualKeyCacheRepository, VirtualKeyLedgerRepository
-from tests.fakes import FakeDynamoDbTable, FakePostgresConnection, InMemoryUserRepository, InMemoryVirtualKeyCacheRepository, InMemoryVirtualKeyLedgerRepository
+from tests.fakes import FakeDynamoDbTable, FakePostgresConnection, InMemoryPricingRepository, InMemoryUserRepository, InMemoryVirtualKeyCacheRepository, InMemoryVirtualKeyLedgerRepository
 
 
 class StubPolicyRepository:
@@ -38,7 +38,10 @@ class StubUsageRepository:
 
 
 class StubPricingRepository:
-    def get_effective_price(self, *, model_id: str, at_date: str | None = None):
+    def get_active_pricing(self, *, model_id: str, at_date=None):
+        return None
+
+    def reload(self):
         return None
 
 
@@ -63,4 +66,4 @@ def test_repository_protocols_are_runtime_checkable() -> None:
     assert isinstance(StubModelRouteRepository(), ModelRouteRepository)
     assert isinstance(StubUsageRepository(), UsageRepository)
     assert isinstance(StubPricingRepository(), PricingRepository)
-
+    assert isinstance(InMemoryPricingRepository(), PricingRepository)

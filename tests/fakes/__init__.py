@@ -6,6 +6,7 @@ from tests.fakes.fake_postgres import FakePostgresConnection
 from tests.fakes.fake_repositories import (
     InMemoryModelAliasRepository,
     InMemoryModelRouteRepository,
+    InMemoryPricingRepository,
     InMemoryUserRepository,
     InMemoryVirtualKeyCacheRepository,
     InMemoryVirtualKeyLedgerRepository,
@@ -21,6 +22,7 @@ __all__ = [
     "FakeRequestIdGenerator",
     "InMemoryModelAliasRepository",
     "InMemoryModelRouteRepository",
+    "InMemoryPricingRepository",
     "InMemoryUserRepository",
     "InMemoryVirtualKeyCacheRepository",
     "InMemoryVirtualKeyLedgerRepository",

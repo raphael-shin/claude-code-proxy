@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from enum import Enum
 
 
@@ -146,6 +146,20 @@ class ModelRouteRecord:
     supports_disable_parallel_tool_use: bool
     priority: int
     is_active: bool = True
+
+
+@dataclass(frozen=True, slots=True)
+class ModelPricingRecord:
+    id: str
+    provider: str
+    model_id: str
+    input_cost_per_million: float
+    output_cost_per_million: float
+    cache_write_input_cost_per_million: float = 0.0
+    cache_read_input_cost_per_million: float = 0.0
+    currency: str = "USD"
+    effective_from: date | None = None
+    effective_to: date | None = None
 
 
 @dataclass(frozen=True, slots=True)
