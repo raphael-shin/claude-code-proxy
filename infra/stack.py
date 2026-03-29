@@ -26,6 +26,7 @@ class ClaudeCodeProxyStack(Stack):
             scope,
             construct_id,
             env=Environment(
+                account=props.deployment_environment.account,
                 region=props.deployment_environment.region,
             ),
             stack_name=props.naming.stack_name,
@@ -38,6 +39,7 @@ class ClaudeCodeProxyStack(Stack):
             self,
             "DataPlane",
             config=props.data_plane,
+            naming=props.naming,
             network=self.network,
         )
         self.token_service = TokenServiceConstruct(

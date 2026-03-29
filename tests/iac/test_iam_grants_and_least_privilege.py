@@ -17,6 +17,14 @@ def test_runtime_and_token_service_roles_use_scoped_grants_without_admin_policie
 
     statements = list(_policy_statements(template))
     actions = [_as_list(statement["Action"]) for statement in statements]
+    bedrock_statements = [
+        statement
+        for statement in statements
+        if any(
+            action in {"bedrock:Converse", "bedrock:ConverseStream"}
+            for action in _as_list(statement["Action"])
+        )
+    ]
 
     assert any("dynamodb:GetItem" in action_list for action_list in actions)
     assert any("secretsmanager:GetSecretValue" in action_list for action_list in actions)
@@ -24,6 +32,13 @@ def test_runtime_and_token_service_roles_use_scoped_grants_without_admin_policie
     assert any("bedrock:ConverseStream" in action_list for action_list in actions)
     assert all("*" not in action_list for action_list in actions)
     assert all("bedrock:*" not in action_list for action_list in actions)
+    assert bedrock_statements
+    for statement in bedrock_statements:
+        resources = _as_list(statement["Resource"])
+        assert "*" not in resources
+        rendered_resources = [str(resource) for resource in resources]
+        assert any("foundation-model/anthropic." in resource for resource in rendered_resources)
+        assert any("inference-profile/" in resource and "anthropic." in resource for resource in rendered_resources)
 
 
 def _policy_statements(template: Template) -> list[dict]:

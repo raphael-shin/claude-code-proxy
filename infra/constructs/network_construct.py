@@ -37,7 +37,7 @@ class NetworkConstruct(Construct):
         # --- Security Groups ---
 
         self.alb_security_group = ec2.SecurityGroup(
-            self, "AlbSecurityGroup", vpc=self.vpc, allow_all_outbound=True,
+            self, "AlbSecurityGroup", vpc=self.vpc, allow_all_outbound=False,
         )
         self.runtime_service_security_group = ec2.SecurityGroup(
             self, "RuntimeServiceSecurityGroup", vpc=self.vpc, allow_all_outbound=True,
@@ -57,6 +57,11 @@ class NetworkConstruct(Construct):
         )
         self.runtime_service_security_group.add_ingress_rule(
             self.alb_security_group,
+            ec2.Port.tcp(config.runtime_container_port),
+            "allow alb to reach runtime service",
+        )
+        self.alb_security_group.add_egress_rule(
+            self.runtime_service_security_group,
             ec2.Port.tcp(config.runtime_container_port),
             "allow alb to reach runtime service",
         )

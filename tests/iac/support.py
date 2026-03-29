@@ -8,7 +8,7 @@ from aws_cdk import App, Stack
 from aws_cdk.assertions import Template
 
 from infra.app import build_cdk_app
-from infra.config import DataPlaneConfig, NetworkConfig, TokenServiceConfig
+from infra.config import DataPlaneConfig, NamingConfig, NetworkConfig, TokenServiceConfig
 from infra.constructs.data_plane_construct import DataPlaneConstruct
 from infra.constructs.network_construct import NetworkConstruct
 from infra.constructs.token_service_construct import TokenServiceConstruct
@@ -49,12 +49,25 @@ def make_data_plane_config() -> DataPlaneConfig:
     )
 
 
+def make_naming_config(environment_name: str = "dev") -> NamingConfig:
+    return NamingConfig(
+        project="claude-code-proxy",
+        environment=environment_name,
+    )
+
+
 def make_network_and_data_plane(
     stack: Stack,
+    *,
+    environment_name: str = "dev",
 ) -> tuple[NetworkConstruct, DataPlaneConstruct]:
     network = NetworkConstruct(stack, "Network", config=make_network_config())
     data_plane = DataPlaneConstruct(
-        stack, "DataPlane", config=make_data_plane_config(), network=network
+        stack,
+        "DataPlane",
+        config=make_data_plane_config(),
+        naming=make_naming_config(environment_name),
+        network=network,
     )
     return network, data_plane
 

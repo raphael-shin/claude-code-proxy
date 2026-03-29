@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from aws_cdk import CfnOutput
+from aws_cdk import CfnOutput, Stack
 from aws_cdk import aws_certificatemanager as acm
 from aws_cdk import aws_ecr as ecr
 from aws_cdk import aws_ecs as ecs
@@ -39,6 +39,7 @@ class ProxyRuntimeConstruct(Construct):
             self,
             "Cluster",
             vpc=network.vpc,
+            container_insights_v2=ecs.ContainerInsights.ENABLED,
         )
         self.task_definition = ecs.FargateTaskDefinition(
             self,
@@ -82,7 +83,7 @@ class ProxyRuntimeConstruct(Construct):
                     "bedrock:Converse",
                     "bedrock:ConverseStream",
                 ],
-                resources=["*"],
+                resources=self._anthropic_bedrock_resources(),
             )
         )
 
@@ -169,3 +170,14 @@ class ProxyRuntimeConstruct(Construct):
             value=self.https_listener.listener_arn,
         )
         self.listener_arn_output.override_logical_id("RuntimeHttpsListenerArn")
+
+    def _anthropic_bedrock_resources(self) -> list[str]:
+        stack = Stack.of(self)
+        partition = stack.partition
+        account = stack.account
+        return [
+            f"arn:{partition}:bedrock:*::foundation-model/anthropic.*",
+            f"arn:{partition}:bedrock:*::foundation-model/*.anthropic.*",
+            f"arn:{partition}:bedrock:*:{account}:inference-profile/anthropic.*",
+            f"arn:{partition}:bedrock:*:{account}:inference-profile/*.anthropic.*",
+        ]

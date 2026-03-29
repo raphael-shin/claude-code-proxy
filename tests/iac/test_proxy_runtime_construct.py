@@ -22,6 +22,23 @@ def test_proxy_runtime_construct_declares_cluster_service_alb_and_health_checks(
     template = Template.from_stack(stack)
 
     template.resource_count_is("AWS::ECS::Cluster", 1)
+    template.has_resource_properties(
+        "AWS::ECS::Cluster",
+        Match.object_like(
+            {
+                "ClusterSettings": Match.array_with(
+                    [
+                        Match.object_like(
+                            {
+                                "Name": "containerInsights",
+                                "Value": "enabled",
+                            }
+                        )
+                    ]
+                )
+            }
+        ),
+    )
     template.resource_count_is("AWS::ECS::TaskDefinition", 1)
     template.has_resource_properties(
         "AWS::ECS::Service",
@@ -74,6 +91,15 @@ def test_proxy_runtime_construct_declares_cluster_service_alb_and_health_checks(
                 "TargetType": "ip",
             }
         ),
+    )
+    egress_rules = template.find_resources("AWS::EC2::SecurityGroupEgress")
+    assert any(
+        rule["Properties"].get("IpProtocol") == "tcp"
+        and rule["Properties"].get("FromPort") == 8000
+        and rule["Properties"].get("ToPort") == 8000
+        and "DestinationSecurityGroupId" in rule["Properties"]
+        and "CidrIp" not in rule["Properties"]
+        for rule in egress_rules.values()
     )
 
 
