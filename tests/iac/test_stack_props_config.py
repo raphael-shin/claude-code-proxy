@@ -22,7 +22,7 @@ def test_app_builds_stack_from_typed_profile_props() -> None:
 
     assert stack.props.naming.stack_name == "ClaudeCodeProxy-prod"
     assert stack.region == "ap-northeast-2"
-    assert stack.account == "333333333333"
+    assert stack.props.deployment_environment.account == "333333333333"
     assert stack.props.proxy_runtime.domain_name == "proxy.example.com"
 
 

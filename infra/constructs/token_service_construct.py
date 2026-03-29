@@ -4,14 +4,25 @@ from aws_cdk import Duration
 from aws_cdk import aws_apigateway as apigateway
 from aws_cdk import aws_lambda as lambda_
 from aws_cdk import aws_logs as logs
+from aws_cdk import aws_ec2 as ec2
 from constructs import Construct
 
 from infra.config import TokenServiceConfig
 from infra.constructs.common import retention_days
+from infra.constructs.data_plane_construct import DataPlaneConstruct
+from infra.constructs.network_construct import NetworkConstruct
 
 
 class TokenServiceConstruct(Construct):
-    def __init__(self, scope: Construct, construct_id: str, *, config: TokenServiceConfig) -> None:
+    def __init__(
+        self,
+        scope: Construct,
+        construct_id: str,
+        *,
+        config: TokenServiceConfig,
+        network: NetworkConstruct | None = None,
+        data_plane: DataPlaneConstruct | None = None,
+    ) -> None:
         super().__init__(scope, construct_id)
         self.config = config
         self.access_log_group = logs.LogGroup(
@@ -26,6 +37,10 @@ class TokenServiceConstruct(Construct):
             handler="index.handler",
             code=lambda_.InlineCode(_token_service_handler_code()),
             description="token service request handler",
+            vpc=network.vpc if network is not None else None,
+            vpc_subnets=network.private_subnet_selection if network is not None else None,
+            security_groups=[network.token_service_security_group] if network is not None else None,
+            environment=_lambda_environment(data_plane),
         )
         self.authorizer_handler: lambda_.Function | None = None
         self.authorizer: apigateway.RequestAuthorizer | None = None
@@ -85,6 +100,9 @@ class TokenServiceConstruct(Construct):
             authorizer=self.authorizer,
         )
         self.web_acl_association_target_arn = self.api.deployment_stage.stage_arn
+        if data_plane is not None:
+            data_plane.cache_table.grant_read_write_data(self.handler)
+            data_plane.database_secret.grant_read(self.handler)
 
 
 def _token_service_handler_code() -> str:
@@ -117,3 +135,13 @@ def handler(event, context):
         },
     }
 """.strip()
+
+
+def _lambda_environment(data_plane: DataPlaneConstruct | None) -> dict[str, str]:
+    if data_plane is None:
+        return {}
+    return {
+        "VIRTUAL_KEY_CACHE_TABLE": data_plane.cache_table.table_name,
+        "DB_PROXY_ENDPOINT": data_plane.database_endpoint,
+        "DB_SECRET_ARN": data_plane.database_secret.secret_arn,
+    }
