@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from aws_cdk import Duration
+from aws_cdk import CfnOutput, Duration
 from aws_cdk import aws_apigateway as apigateway
 from aws_cdk import aws_lambda as lambda_
 from aws_cdk import aws_logs as logs
@@ -101,6 +101,12 @@ class TokenServiceConstruct(Construct):
             authorizer=self.authorizer,
         )
         self.web_acl_association_target_arn = self.api.deployment_stage.stage_arn
+        self.endpoint_url_output = CfnOutput(
+            self,
+            "TokenServiceEndpointUrl",
+            value=self.api.url_for_path("/token-service/get-or-create-key"),
+        )
+        self.endpoint_url_output.override_logical_id("TokenServiceEndpointUrl")
         if data_plane is not None:
             data_plane.grant_access(self.handler)
 

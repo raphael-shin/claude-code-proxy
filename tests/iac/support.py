@@ -15,13 +15,13 @@ from infra.constructs.token_service_construct import TokenServiceConstruct
 from infra.stack import ClaudeCodeProxyStack
 
 
-def synth_stack(profile_name: str = "dev") -> ClaudeCodeProxyStack:
-    _, stack = build_cdk_app(profile_name=profile_name)  # type: ignore[arg-type]
+def synth_stack(environment_name: str = "dev") -> ClaudeCodeProxyStack:
+    _, stack = build_cdk_app(environment_name)
     return stack
 
 
-def synth_template(profile_name: str = "dev") -> Template:
-    return Template.from_stack(synth_stack(profile_name=profile_name))
+def synth_template(environment_name: str = "dev") -> Template:
+    return Template.from_stack(synth_stack(environment_name=environment_name))
 
 
 def resource_types(template: Template) -> list[str]:

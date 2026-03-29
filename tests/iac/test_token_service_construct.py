@@ -65,5 +65,6 @@ def test_token_service_construct_declares_regional_iam_api_with_logs_and_throttl
             }
         ),
     )
+    template.has_output("TokenServiceEndpointUrl", Match.any_value())
     assert construct.config.stage_name == "dev"
     assert "/stages/" in construct.web_acl_association_target_arn
