@@ -6,7 +6,7 @@ from aws_cdk import aws_logs as logs
 from constructs import Construct
 
 from infra.config import AdminApiConfig
-from infra.constructs.common import retention_days
+from infra.constructs.common import make_rest_api, retention_days
 
 
 class AdminApiConstruct(Construct):
@@ -26,27 +26,13 @@ class AdminApiConstruct(Construct):
             code=lambda_.InlineCode(_admin_handler_code()),
             description="admin api request handler",
         )
-        self.api = apigateway.RestApi(
+        self.api = make_rest_api(
             self,
             "Api",
-            endpoint_types=[apigateway.EndpointType.REGIONAL],
-            deploy_options=apigateway.StageOptions(
-                stage_name=config.stage_name,
-                throttling_rate_limit=config.throttling_rate_limit,
-                throttling_burst_limit=config.throttling_burst_limit,
-                access_log_destination=apigateway.LogGroupLogDestination(self.access_log_group),
-                access_log_format=apigateway.AccessLogFormat.json_with_standard_fields(
-                    caller=True,
-                    http_method=True,
-                    ip=True,
-                    protocol=True,
-                    request_time=True,
-                    resource_path=True,
-                    response_length=True,
-                    status=True,
-                    user=True,
-                ),
-            ),
+            log_group=self.access_log_group,
+            stage_name=config.stage_name,
+            throttling_rate_limit=config.throttling_rate_limit,
+            throttling_burst_limit=config.throttling_burst_limit,
         )
         self.admin_resource = self.api.root.add_resource("admin")
         self.users_resource = self.admin_resource.add_resource("users")

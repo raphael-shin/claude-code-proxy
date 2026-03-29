@@ -4,11 +4,11 @@ from aws_cdk.assertions import Match
 
 from infra.config import OptionalAuthorizerConfig, TokenServiceConfig
 
-from tests.iac.test_token_service_construct import _token_service_template
+from tests.iac.support import token_service_template
 
 
 def test_token_service_profile_can_attach_request_authorizer_without_moving_handler_logic() -> None:
-    template, construct = _token_service_template(
+    template, construct = token_service_template(
         TokenServiceConfig(
             stage_name="dev",
             throttling_rate_limit=25,
@@ -44,5 +44,4 @@ def test_token_service_profile_can_attach_request_authorizer_without_moving_hand
         ),
     )
     assert construct.authorizer_handler is not None
-    assert construct.integration_handler is construct.handler
     assert construct.authorizer_handler is not construct.handler

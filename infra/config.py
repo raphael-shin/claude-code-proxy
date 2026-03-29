@@ -17,7 +17,10 @@ class DeploymentEnvironment:
 class NamingConfig:
     project: str
     environment: ProfileName
-    stack_name: str
+
+    @property
+    def stack_name(self) -> str:
+        return f"ClaudeCodeProxy-{self.environment}"
 
 
 @dataclass(frozen=True)
@@ -49,6 +52,7 @@ class NetworkConfig:
     vpc_cidr: str
     max_azs: int
     nat_gateways: int
+    runtime_container_port: int = 8000
 
 
 @dataclass(frozen=True)
@@ -87,13 +91,12 @@ class ClaudeCodeProxyStackProps:
     proxy_runtime: ProxyRuntimeConfig
 
 
-def load_profile(profile_name: str = "dev") -> ClaudeCodeProxyStackProps:
+def load_profile(profile_name: ProfileName = "dev") -> ClaudeCodeProxyStackProps:
     profiles: dict[ProfileName, ClaudeCodeProxyStackProps] = {
         "dev": ClaudeCodeProxyStackProps(
             naming=NamingConfig(
                 project="claude-code-proxy",
                 environment="dev",
-                stack_name="ClaudeCodeProxy-dev",
             ),
             deployment_environment=DeploymentEnvironment(
                 account="111111111111",
@@ -142,7 +145,6 @@ def load_profile(profile_name: str = "dev") -> ClaudeCodeProxyStackProps:
             naming=NamingConfig(
                 project="claude-code-proxy",
                 environment="staging",
-                stack_name="ClaudeCodeProxy-staging",
             ),
             deployment_environment=DeploymentEnvironment(
                 account="222222222222",
@@ -191,7 +193,6 @@ def load_profile(profile_name: str = "dev") -> ClaudeCodeProxyStackProps:
             naming=NamingConfig(
                 project="claude-code-proxy",
                 environment="prod",
-                stack_name="ClaudeCodeProxy-prod",
             ),
             deployment_environment=DeploymentEnvironment(
                 account="333333333333",
@@ -238,7 +239,7 @@ def load_profile(profile_name: str = "dev") -> ClaudeCodeProxyStackProps:
         ),
     }
     try:
-        return profiles[profile_name]  # type: ignore[index]
+        return profiles[profile_name]
     except KeyError as error:
         supported = ", ".join(sorted(profiles))
         raise ValueError(f"unknown profile '{profile_name}', expected one of: {supported}") from error

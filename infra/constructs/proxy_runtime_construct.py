@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from aws_cdk import CfnOutput
 from aws_cdk import aws_certificatemanager as acm
-from aws_cdk import aws_ec2 as ec2
 from aws_cdk import aws_ecs as ecs
 from aws_cdk import aws_elasticloadbalancingv2 as elbv2
 from aws_cdk import aws_iam as iam
@@ -62,13 +61,10 @@ class ProxyRuntimeConstruct(Construct):
             ),
             environment={
                 "PORT": str(config.container_port),
-                "DB_PROXY_ENDPOINT": data_plane.database_endpoint,
-                "DB_SECRET_ARN": data_plane.database_secret.secret_arn,
-                "VIRTUAL_KEY_CACHE_TABLE": data_plane.cache_table.table_name,
+                **data_plane.env_vars(),
             },
         )
-        data_plane.cache_table.grant_read_write_data(self.task_definition.task_role)
-        data_plane.database_secret.grant_read(self.task_definition.task_role)
+        data_plane.grant_access(self.task_definition.task_role)
         self.task_definition.task_role.add_to_principal_policy(
             iam.PolicyStatement(
                 actions=[

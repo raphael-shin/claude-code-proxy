@@ -55,13 +55,13 @@ class NetworkConstruct(Construct):
             self,
             "DatabaseProxySecurityGroup",
             vpc=self.vpc,
-            allow_all_outbound=True,
+            allow_all_outbound=False,
         )
         self.database_security_group = ec2.SecurityGroup(
             self,
             "DatabaseSecurityGroup",
             vpc=self.vpc,
-            allow_all_outbound=True,
+            allow_all_outbound=False,
         )
 
         self.alb_security_group.add_ingress_rule(
@@ -71,7 +71,7 @@ class NetworkConstruct(Construct):
         )
         self.runtime_service_security_group.add_ingress_rule(
             self.alb_security_group,
-            ec2.Port.tcp(8000),
+            ec2.Port.tcp(config.runtime_container_port),
             "allow alb to reach runtime service",
         )
         self.db_proxy_security_group.add_ingress_rule(
@@ -83,6 +83,11 @@ class NetworkConstruct(Construct):
             self.token_service_security_group,
             ec2.Port.tcp(5432),
             "allow token service lambda to reach db proxy",
+        )
+        self.db_proxy_security_group.add_egress_rule(
+            self.database_security_group,
+            ec2.Port.tcp(5432),
+            "allow db proxy to reach aurora",
         )
         self.database_security_group.add_ingress_rule(
             self.db_proxy_security_group,

@@ -4,11 +4,10 @@ from aws_cdk import Duration
 from aws_cdk import aws_apigateway as apigateway
 from aws_cdk import aws_lambda as lambda_
 from aws_cdk import aws_logs as logs
-from aws_cdk import aws_ec2 as ec2
 from constructs import Construct
 
 from infra.config import TokenServiceConfig
-from infra.constructs.common import retention_days
+from infra.constructs.common import make_rest_api, retention_days
 from infra.constructs.data_plane_construct import DataPlaneConstruct
 from infra.constructs.network_construct import NetworkConstruct
 
@@ -63,32 +62,17 @@ class TokenServiceConstruct(Construct):
                 results_cache_ttl=Duration.seconds(config.authorizer.results_cache_ttl_seconds),
             )
 
-        self.api = apigateway.RestApi(
+        self.api = make_rest_api(
             self,
             "Api",
-            endpoint_types=[apigateway.EndpointType.REGIONAL],
-            deploy_options=apigateway.StageOptions(
-                stage_name=config.stage_name,
-                throttling_rate_limit=config.throttling_rate_limit,
-                throttling_burst_limit=config.throttling_burst_limit,
-                access_log_destination=apigateway.LogGroupLogDestination(self.access_log_group),
-                access_log_format=apigateway.AccessLogFormat.json_with_standard_fields(
-                    caller=True,
-                    http_method=True,
-                    ip=True,
-                    protocol=True,
-                    request_time=True,
-                    resource_path=True,
-                    response_length=True,
-                    status=True,
-                    user=True,
-                ),
-            ),
+            log_group=self.access_log_group,
+            stage_name=config.stage_name,
+            throttling_rate_limit=config.throttling_rate_limit,
+            throttling_burst_limit=config.throttling_burst_limit,
         )
         self.token_service_resource = self.api.root.add_resource("token-service")
         self.get_or_create_key_resource = self.token_service_resource.add_resource("get-or-create-key")
         self.integration = apigateway.LambdaIntegration(self.handler)
-        self.integration_handler = self.handler
         self.post_method = self.get_or_create_key_resource.add_method(
             "POST",
             self.integration,
@@ -101,8 +85,7 @@ class TokenServiceConstruct(Construct):
         )
         self.web_acl_association_target_arn = self.api.deployment_stage.stage_arn
         if data_plane is not None:
-            data_plane.cache_table.grant_read_write_data(self.handler)
-            data_plane.database_secret.grant_read(self.handler)
+            data_plane.grant_access(self.handler)
 
 
 def _token_service_handler_code() -> str:
@@ -140,8 +123,4 @@ def handler(event, context):
 def _lambda_environment(data_plane: DataPlaneConstruct | None) -> dict[str, str]:
     if data_plane is None:
         return {}
-    return {
-        "VIRTUAL_KEY_CACHE_TABLE": data_plane.cache_table.table_name,
-        "DB_PROXY_ENDPOINT": data_plane.database_endpoint,
-        "DB_SECRET_ARN": data_plane.database_secret.secret_arn,
-    }
+    return data_plane.env_vars()

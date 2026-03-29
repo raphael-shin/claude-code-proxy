@@ -1,14 +1,13 @@
 from __future__ import annotations
 
-from aws_cdk import App, Stack
-from aws_cdk.assertions import Match, Template
+from aws_cdk.assertions import Match
 
 from infra.config import TokenServiceConfig
-from infra.constructs.token_service_construct import TokenServiceConstruct
+from tests.iac.support import token_service_template
 
 
 def test_token_service_construct_declares_regional_iam_api_with_logs_and_throttling() -> None:
-    template, construct = _token_service_template(
+    template, construct = token_service_template(
         TokenServiceConfig(
             stage_name="dev",
             throttling_rate_limit=25,
@@ -68,12 +67,3 @@ def test_token_service_construct_declares_regional_iam_api_with_logs_and_throttl
     )
     assert construct.config.stage_name == "dev"
     assert "/stages/" in construct.web_acl_association_target_arn
-
-
-def _token_service_template(
-    config: TokenServiceConfig,
-) -> tuple[Template, TokenServiceConstruct]:
-    app = App()
-    stack = Stack(app, "TokenServiceHarness")
-    construct = TokenServiceConstruct(stack, "TokenService", config=config)
-    return Template.from_stack(stack), construct

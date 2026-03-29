@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from aws_cdk import RemovalPolicy
 from aws_cdk import aws_dynamodb as dynamodb
+from aws_cdk import aws_iam as iam
 from aws_cdk import aws_rds as rds
 from constructs import Construct
 
@@ -64,3 +65,14 @@ class DataPlaneConstruct(Construct):
             encryption=dynamodb.TableEncryption.AWS_MANAGED,
             removal_policy=RemovalPolicy.DESTROY,
         )
+
+    def env_vars(self) -> dict[str, str]:
+        return {
+            "VIRTUAL_KEY_CACHE_TABLE": self.cache_table.table_name,
+            "DB_PROXY_ENDPOINT": self.database_endpoint,
+            "DB_SECRET_ARN": self.database_secret.secret_arn,
+        }
+
+    def grant_access(self, grantee: iam.IGrantable) -> None:
+        self.cache_table.grant_read_write_data(grantee)
+        self.database_secret.grant_read(grantee)
