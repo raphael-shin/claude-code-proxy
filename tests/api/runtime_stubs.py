@@ -112,19 +112,34 @@ class BedrockClientStub:
         self,
         *,
         converse_response: dict[str, Any] | None = None,
+        converse_stream_response: list[dict[str, Any]] | None = None,
         count_tokens_response: dict[str, Any] | None = None,
         call_log: list[str] | None = None,
     ) -> None:
         self.converse_response = converse_response or {}
+        self.converse_stream_response = list(converse_stream_response or [])
         self.count_tokens_response = count_tokens_response or {}
         self.call_log = call_log if call_log is not None else []
         self.converse_calls: list[Any] = []
+        self.converse_stream_calls: list[Any] = []
         self.count_tokens_calls: list[Any] = []
+        self.stream_events_yielded = 0
 
     def converse(self, converse_request):
         self.call_log.append("bedrock")
         self.converse_calls.append(converse_request)
         return self.converse_response
+
+    def converse_stream(self, converse_request):
+        self.call_log.append("bedrock")
+        self.converse_stream_calls.append(converse_request)
+
+        def _iterate():
+            for event in self.converse_stream_response:
+                self.stream_events_yielded += 1
+                yield event
+
+        return _iterate()
 
     def count_tokens(self, converse_request):
         self.call_log.append("count_tokens")

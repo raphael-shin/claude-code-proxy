@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any, Mapping
 
 from fastapi import APIRouter, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from api.errors import (
     ANTHROPIC_API_ERROR,
@@ -15,6 +15,7 @@ from api.errors import (
 )
 from proxy.bedrock_converse.request_builder import BedrockRequestBuildError, build_converse_request
 from proxy.bedrock_converse.response_parser import parse_converse_response
+from proxy.bedrock_converse.stream_decoder import ConverseStreamDecoder
 from proxy.model_resolver import ModelResolutionError
 
 router = APIRouter()
@@ -80,6 +81,14 @@ async def create_message(request: Request) -> JSONResponse:
             )
 
         converse_request = build_converse_request(body, resolved_model=resolved_model)
+        if bool(body.get("stream")):
+            raw_stream = dependencies.bedrock_client.converse_stream(converse_request)
+            decoder = ConverseStreamDecoder(model=body["model"])
+            return StreamingResponse(
+                decoder.iter_sse_events(raw_stream),
+                media_type="text/event-stream",
+            )
+
         raw_response = dependencies.bedrock_client.converse(converse_request)
         parsed_response = parse_converse_response(raw_response, model=body["model"])
         return JSONResponse(status_code=200, content=parsed_response)
